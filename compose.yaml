@@ -1,0 +1,26 @@
+name: gm_nard
+
+services:
+  nard:
+    build: .
+    image: gm_nard:local
+    init: true
+    restart: unless-stopped
+    read_only: true
+    environment:
+      PUBLIC_ORIGIN: ${NARD_PUBLIC_ORIGIN:-http://127.0.0.1:7000}
+    ports:
+      - "127.0.0.1:7000:4173"
+    volumes:
+      - nard_data:/app/data
+      - nard_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173/api/health').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  nard_data:
+  nard_logs:

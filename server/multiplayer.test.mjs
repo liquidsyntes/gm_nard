@@ -9,6 +9,7 @@ test('admin tokens, online invitation and server-validated moves survive restart
   const directory = await mkdtemp(join(tmpdir(), 'nard-online-test-'))
   process.env.GAME_DATA_DIR = join(directory, 'data')
   process.env.GAME_LOG_DIR = join(directory, 'logs')
+  process.env.PUBLIC_ORIGIN = 'http://127.0.0.1:7000'
   const { createStore } = await import('./store.mjs')
   const { newId, newToken, tokenHash } = await import('./auth.mjs')
   const { createMultiplayerApi } = await import('./multiplayer.mjs')
@@ -31,8 +32,10 @@ test('admin tokens, online invitation and server-validated moves survive restart
   }
 
   try {
+    assert.equal((await call('/api/logs', null, { session: 'c'.repeat(32), game: 1, kind: 'system', text: 'Локальная проверка' })).status, 201)
     assert.equal((await call('/api/auth/login', null, { token: 'wrong' })).status, 401)
     assert.equal((await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { Origin: 'https://other.example', 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) })).status, 403)
+    assert.equal((await fetch(`${base}/api/auth/login`, { method: 'POST', headers: { Origin: 'http://localhost:7000', 'Content-Type': 'application/json' }, body: JSON.stringify({ token: adminToken }) })).status, 200)
     const adminCookie = await login(adminToken)
     const aliceCreated = await call('/api/admin/users', adminCookie, { name: 'Алиса' })
     const bobCreated = await call('/api/admin/users', adminCookie, { name: 'Борис' })

@@ -43,4 +43,5 @@ const server = createServer(async (request, response) => {
 })
 
 const port = Number(process.env.PORT || 4173)
-server.listen(port, '127.0.0.1', () => console.log(`NARD: http://127.0.0.1:${port}/`))
+const host = process.env.GAME_BIND_HOST || '127.0.0.1'
+server.listen(port, host, () => console.log(`NARD: http://${host}:${port}/`))

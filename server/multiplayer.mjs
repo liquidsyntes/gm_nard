@@ -13,6 +13,8 @@ const publicUser = user => ({ id: user.id, name: user.name, role: user.role, dis
 const playerColor = (game, userId) => game.players.light === userId ? 'light' : game.players.dark === userId ? 'dark' : null
 const gameFor = (state, userId) => state.games.some(game => game.phase !== 'over' && playerColor(game, userId))
 const now = () => new Date().toISOString()
+const loopbackHosts = ['127.0.0.1', 'localhost', '[::1]']
+const guestFileLogsAllowed = !publicOrigin || loopbackHosts.includes(new URL(publicOrigin).hostname)
 
 function send(response, status, body, headers = {}) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers })
@@ -42,7 +44,13 @@ function nameValid(value) {
 function originAllowed(request) {
   const origin = request.headers.origin
   const expected = publicOrigin || `http://${request.headers.host}`
-  return !origin || origin === expected
+  if (!origin || origin === expected) return true
+  try {
+    const actual = new URL(origin)
+    const configured = new URL(expected)
+    return loopbackHosts.includes(actual.hostname) && loopbackHosts.includes(configured.hostname)
+      && actual.protocol === configured.protocol && actual.port === configured.port
+  } catch { return false }
 }
 
 function currentUser(state, request) {
@@ -162,7 +170,7 @@ export async function createMultiplayerApi() {
 
       const auth = currentUser(store.read(), request)
       if (pathname === '/api/logs') {
-        if (publicOrigin && !auth) fail(401, 'Требуется вход')
+        if (!guestFileLogsAllowed && !auth) fail(401, 'Требуется вход')
         await handleLogRequest(request, response)
         return
       }

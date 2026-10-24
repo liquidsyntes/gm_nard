@@ -1,0 +1,11 @@
+.git
+.gitignore
+.env
+node_modules
+dist
+data
+logs
+server/generated
+*.log
+*.png
+*.zip

@@ -2,7 +2,10 @@ name: gm_nard
 
 services:
   nard:
-    build: .
+    build:
+      context: .
+      args:
+        VITE_BASE: ${NARD_BASE:-/}
     image: gm_nard:local
     init: true
     restart: unless-stopped

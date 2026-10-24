@@ -40,6 +40,7 @@ let pendingFileWrites = 0
 let fileWriteQueue: Promise<void> = Promise.resolve()
 
 const app = document.querySelector<HTMLDivElement>('#app')!
+const BASE = import.meta.env.BASE_URL
 const newSessionId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
 let sessionId = newSessionId()
 const name = (side: Player) => side === 'light' ? 'Светлые' : 'Тёмные'
@@ -65,7 +66,7 @@ function record(text: string, kind: LogKind = 'system'): void {
   pendingFileWrites++
   updateFileStatus()
   fileWriteQueue = fileWriteQueue.then(async () => {
-    const response = await fetch('/api/logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true })
+    const response = await fetch(`${BASE}api/logs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true })
     if (!response.ok) throw new Error(`File log HTTP ${response.status}`)
   }).then(() => {
     pendingFileWrites--
@@ -166,7 +167,7 @@ function render(): void {
   const offOption = moveOptions().some(move => move.to === 'off')
   const phaseLabel = phase === 'opening' ? 'Подготовка' : phase === 'offer' ? 'Решение за соперником' : phase === 'over' ? 'Партия окончена' : phase === 'roll' ? 'Ваш бросок' : firstMoves(sequences).length ? 'Ваш ход' : 'Ход завершён'
   app.innerHTML = `<div class="shell">
-    <header class="site-header"><div class="brand"><img class="brand-mark" src="/die-logo.svg" alt="" /><div><strong>NARD</strong><small>КОРОТКИЕ НАРДЫ</small></div></div><div class="header-right"><span class="mode-pill"><span></span> ${mode === 'local' ? 'ИГРА ВДВОЁМ' : mode === 'bot' ? 'ИГРА С БОТОМ' : 'БОТ VS БОТ'}</span><a class="text-button" href="/online.html">Онлайн ↗</a><button class="text-button" data-action="rules">Правила <span>↗</span></button></div></header>
+    <header class="site-header"><div class="brand"><img class="brand-mark" src="${BASE}die-logo.svg" alt="" /><div><strong>NARD</strong><small>КОРОТКИЕ НАРДЫ</small></div></div><div class="header-right"><span class="mode-pill"><span></span> ${mode === 'local' ? 'ИГРА ВДВОЁМ' : mode === 'bot' ? 'ИГРА С БОТОМ' : 'БОТ VS БОТ'}</span><a class="text-button" href="${BASE}online.html">Онлайн ↗</a><button class="text-button" data-action="rules">Правила <span>↗</span></button></div></header>
     <main class="layout">
       <section class="game-area" aria-label="Игровое поле">
         <div class="board-head"><div><span class="eyebrow">КЛАССИЧЕСКАЯ ПАРТИЯ</span><h1>Игра начинается здесь.</h1></div><div class="board-head-meta"><span>24 ПУНКТА</span><i></i><span>15 ФИШЕК</span></div></div>

@@ -19,6 +19,7 @@ class ApiRequestError extends Error {
 }
 
 const app = document.querySelector<HTMLDivElement>('#app')!
+const BASE = import.meta.env.BASE_URL
 let me: User | null = null
 let lobby: Lobby | null = null
 let adminUsers: User[] = []
@@ -39,7 +40,7 @@ const sideName = (side: Player) => side === 'light' ? 'Светлые' : 'Тём
 const time = (value: string) => new Date(value).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
 
 async function api<T>(path: string, method = 'GET', body?: object): Promise<T> {
-  const response = await fetch(path, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
+  const response = await fetch(`${BASE}${path.replace(/^\//, '')}`, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
   const data = await response.json().catch(() => ({}))
   if (!response.ok) throw new ApiRequestError(response.status, data.error || `HTTP ${response.status}`)
   return data as T
@@ -123,10 +124,10 @@ function adminHtml(): string {
 
 function render(): void {
   if (!me) {
-    app.innerHTML = `<div class="online-shell"><header class="site-header"><div class="brand"><img class="brand-mark" src="/die-logo.svg" alt="" /><div><strong>NARD</strong><small>ОНЛАЙН-ПАРТИИ</small></div></div><a class="text-button" href="/">Локальная игра ↗</a></header><main class="login-wrap"><section class="online-card login-card"><span class="eyebrow">ВХОД ПО ПРИГЛАШЕНИЮ</span><h1>Сыграем партию?</h1><p>Введите личный токен, который выдал администратор. Регистрация открыта только ему.</p><form data-form="login" class="online-form"><label>Личный токен<input type="password" name="token" autocomplete="off" required /></label><button class="primary-button">Войти <span>↗</span></button></form>${notice ? `<p class="online-notice" role="alert">${escapeHtml(notice)}</p>` : ''}</section></main></div>`
+    app.innerHTML = `<div class="online-shell"><header class="site-header"><div class="brand"><img class="brand-mark" src="${BASE}die-logo.svg" alt="" /><div><strong>NARD</strong><small>ОНЛАЙН-ПАРТИИ</small></div></div><a class="text-button" href="${BASE}">Локальная игра ↗</a></header><main class="login-wrap"><section class="online-card login-card"><span class="eyebrow">ВХОД ПО ПРИГЛАШЕНИЮ</span><h1>Сыграем партию?</h1><p>Введите личный токен, который выдал администратор. Регистрация открыта только ему.</p><form data-form="login" class="online-form"><label>Личный токен<input type="password" name="token" autocomplete="off" required /></label><button class="primary-button">Войти <span>↗</span></button></form>${notice ? `<p class="online-notice" role="alert">${escapeHtml(notice)}</p>` : ''}</section></main></div>`
     return
   }
-  app.innerHTML = `<div class="shell"><header class="site-header"><div class="brand"><img class="brand-mark" src="/die-logo.svg" alt="" /><div><strong>NARD</strong><small>ОНЛАЙН-ПАРТИИ</small></div></div><div class="header-right"><span class="mode-pill"><span></span>${escapeHtml(me.name)} · ${liveStatus}</span><a class="text-button" href="/">Локальная игра ↗</a><button class="text-button" data-action="logout">Выйти</button></div></header><main class="online-main"><nav class="online-nav"><button data-action="lobby" class="${screen !== 'admin' ? 'active' : ''}">Лобби</button>${me.role === 'admin' ? `<button data-action="admin" class="${screen === 'admin' ? 'active' : ''}">Админ-панель</button>` : ''}</nav>${notice ? `<p class="online-notice" role="status">${escapeHtml(notice)}</p>` : ''}${screen === 'game' && game ? gameHtml() : screen === 'admin' ? adminHtml() : lobby ? lobbyHtml() : '<p class="online-empty">Загружаем лобби...</p>'}</main></div>`
+  app.innerHTML = `<div class="shell"><header class="site-header"><div class="brand"><img class="brand-mark" src="${BASE}die-logo.svg" alt="" /><div><strong>NARD</strong><small>ОНЛАЙН-ПАРТИИ</small></div></div><div class="header-right"><span class="mode-pill"><span></span>${escapeHtml(me.name)} · ${liveStatus}</span><a class="text-button" href="${BASE}">Локальная игра ↗</a><button class="text-button" data-action="logout">Выйти</button></div></header><main class="online-main"><nav class="online-nav"><button data-action="lobby" class="${screen !== 'admin' ? 'active' : ''}">Лобби</button>${me.role === 'admin' ? `<button data-action="admin" class="${screen === 'admin' ? 'active' : ''}">Админ-панель</button>` : ''}</nav>${notice ? `<p class="online-notice" role="status">${escapeHtml(notice)}</p>` : ''}${screen === 'game' && game ? gameHtml() : screen === 'admin' ? adminHtml() : lobby ? lobbyHtml() : '<p class="online-empty">Загружаем лобби...</p>'}</main></div>`
 }
 
 async function refresh(): Promise<void> {
@@ -168,7 +169,7 @@ function stopLive(): void {
 
 function connectLive(): void {
   stopLive()
-  live = new EventSource('/api/live')
+  live = new EventSource(`${BASE}api/live`)
   refreshTimer = window.setInterval(() => { void refresh() }, 30_000)
   live.onopen = () => { liveStatus = 'в сети'; render() }
   live.onerror = () => {

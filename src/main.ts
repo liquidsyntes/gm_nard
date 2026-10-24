@@ -5,7 +5,9 @@ import type { Board, Destination, Move, Origin, Player } from './engine.ts'
 
 type Phase = 'opening' | 'roll' | 'move' | 'offer' | 'over'
 type Mode = 'local' | 'bot' | 'demo'
-interface Snapshot { board: Board; sequences: Move[][]; remaining: number[] }
+type LogKind = 'system' | 'roll' | 'move' | 'cube' | 'result'
+interface LogEntry { id: number; time: string; text: string; kind: LogKind }
+interface Snapshot { board: Board; sequences: Move[][]; remaining: number[]; logId: number; move: Move }
 
 let mode: Mode = 'local'
 let paused = false
@@ -30,8 +32,16 @@ let botTimer: number | undefined
 let botRequestId = 0
 let gameVersion = 0
 let botWorker: Worker | null = null
+let gameNumber = 0
+let nextLogId = 0
+let logEntries: LogEntry[] = []
+let fileLogFailed = false
+let pendingFileWrites = 0
+let fileWriteQueue: Promise<void> = Promise.resolve()
 
 const app = document.querySelector<HTMLDivElement>('#app')!
+const newSessionId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
+let sessionId = newSessionId()
 const name = (side: Player) => side === 'light' ? 'Светлые' : 'Тёмные'
 const dieLabel = (value: number) => ['','⚀','⚁','⚂','⚃','⚄','⚅'][value]
 const pointWord = (value: number) => value % 100 >= 11 && value % 100 <= 14 ? 'очков' : value % 10 === 1 ? 'очко' : value % 10 >= 2 && value % 10 <= 4 ? 'очка' : 'очков'
@@ -39,6 +49,37 @@ const isBot = (side: Player) => mode === 'demo' || (mode === 'bot' && side === '
 const isAutomated = () => mode === 'demo' && (phase === 'opening' || phase === 'over')
   || phase === 'offer' && offerer !== null && isBot(opponent(offerer))
   || (phase === 'roll' || phase === 'move') && isBot(player)
+const actor = (side: Player) => mode === 'bot' && side === 'light' ? 'Вы' : isBot(side) ? `Бот (${name(side).toLowerCase()})` : name(side)
+const fileStatus = () => fileLogFailed ? 'error' : pendingFileWrites > 0 ? 'saving' : 'saved'
+const fileStatusText = () => fileLogFailed ? 'ФАЙЛ НЕДОСТУПЕН' : pendingFileWrites > 0 ? 'ЗАПИСЬ В ФАЙЛ...' : 'ФАЙЛ СОХРАНЁН'
+
+function updateFileStatus(): void {
+  const element = app.querySelector<HTMLElement>('[data-file-log-status]')
+  if (element) { element.dataset.state = fileStatus(); element.textContent = fileStatusText() }
+}
+
+function record(text: string, kind: LogKind = 'system'): void {
+  logEntries.push({ id: ++nextLogId, time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }), text, kind })
+  if (logEntries.length > 150) logEntries.shift()
+  const payload = JSON.stringify({ session: sessionId, game: gameNumber, kind, text })
+  pendingFileWrites++
+  updateFileStatus()
+  fileWriteQueue = fileWriteQueue.then(async () => {
+    const response = await fetch('/api/logs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, keepalive: true })
+    if (!response.ok) throw new Error(`File log HTTP ${response.status}`)
+  }).then(() => {
+    pendingFileWrites--
+    updateFileStatus()
+  }, () => {
+    pendingFileWrites--
+    fileLogFailed = true
+    updateFileStatus()
+  })
+}
+
+function moveText(move: Move): string {
+  return `${move.from === 'bar' ? 'бар' : move.from + 1} → ${move.to === 'off' ? 'вывод' : move.to + 1}, кость ${move.die}`
+}
 
 function randomDie(): number {
   const limit = Math.floor(0x100000000 / 6) * 6
@@ -116,6 +157,10 @@ function optionsHtml(): string {
   return `<div class="move-options"><span class="eyebrow">Доступные ходы</span><div class="option-list">${options.map((move, index) => `<button data-move="${index}"><span>${formatDestination(move.to)}</span><b>${dieLabel(move.die)} <small>${move.die}</small></b></button>`).join('')}</div></div>`
 }
 
+function logHtml(): string {
+  return `<section class="activity-panel" aria-label="Журнал игры"><div class="activity-head"><span class="eyebrow">ЖУРНАЛ ИГРЫ</span><span>ЗАПИСИ · ${logEntries.length}</span></div><div class="file-log-status" data-file-log-status data-state="${fileStatus()}">${fileStatusText()}</div><ol class="activity-list" aria-live="off">${[...logEntries].reverse().map(entry => `<li class="activity-item ${entry.kind}"><time>${entry.time}</time><span>${entry.text}</span></li>`).join('')}</ol></section>`
+}
+
 function render(): void {
   const barOption = moveOptions().some(move => move.from === 'bar')
   const offOption = moveOptions().some(move => move.to === 'off')
@@ -137,7 +182,7 @@ function render(): void {
         <div class="players">${playerCard('light')}<div class="versus">VS <span>•</span> ${phase === 'over' ? 'ФИНИШ' : 'ХОД'}</div>${playerCard('dark')}</div>
         <div class="turn-panel" aria-live="polite"><span class="eyebrow">${phaseLabel.toUpperCase()}</span><strong>${phase === 'offer' ? name(opponent(offerer!)) : phase === 'over' ? `${name(winner!)} победили` : phase === 'opening' ? 'Кто начнёт?' : name(player)}</strong><p>${notice}</p></div>
         <div class="dice-panel"><div class="dice-title"><span class="eyebrow">ИГРОВЫЕ КОСТИ</span><span class="cube">КУБ <b>×${cubeValue}</b>${cubeOwner ? ` · ${name(cubeOwner)}` : ''}</span></div><div class="dice">${diceHtml()}</div></div>
-        ${optionsHtml()}<div class="actions">${actionHtml()}</div>
+        ${optionsHtml()}<div class="actions">${actionHtml()}</div>${logHtml()}
         <div class="sidebar-bottom"><span class="tiny-diamond">◇</span> Первый, кто выведет все 15 фишек, побеждает.</div>
       </aside>
     </main>
@@ -150,6 +195,7 @@ function render(): void {
 
 function startGame(): void {
   gameVersion++
+  gameNumber++
   botPlan = []
   botBusy = false
   board = initialBoard()
@@ -165,6 +211,7 @@ function startGame(): void {
   offerer = null
   winner = null
   notice = 'Начните партию: каждый игрок бросит по одной кости.'
+  record(`Партия ${gameNumber} началась. Режим: ${mode === 'local' ? 'два игрока' : mode === 'bot' ? 'против бота' : 'бот против бота'}.`)
   render()
 }
 
@@ -179,6 +226,7 @@ function openingRoll(): void {
   botPlan = []
   phase = 'move'
   notice = `Светлые выбросили ${light}, тёмные ${dark}. ${name(player)} начинают и играют оба числа.`
+  record(`Первый бросок: светлые ${light}, тёмные ${dark}. Начинают ${name(player).toLowerCase()}.`, 'roll')
   render()
 }
 
@@ -193,17 +241,20 @@ function roll(): void {
   selected = board.bar[player] > 0 ? 'bar' : null
   phase = 'move'
   notice = sequences.length ? first === second ? `Дубль ${first}:${second}. Можно сделать четыре хода.` : `Выпало ${first} и ${second}. Выберите фишку.` : 'Допустимых ходов нет. Передайте ход сопернику.'
+  record(`${actor(player)}: бросок ${first} и ${second}${first === second ? ', дубль' : ''}.`, 'roll')
   render()
 }
 
 function play(move: Move): void {
   if (phase !== 'move' || !firstMoves(sequences).some(candidate => sameMove(candidate, move))) return
-  history.push({ board, sequences, remaining: [...remaining] })
+  history.push({ board, sequences, remaining: [...remaining], logId: nextLogId, move })
+  const hit = move.to !== 'off' && board.points[move.to] === (player === 'light' ? -1 : 1)
   board = applyMove(board, player, move)
   sequences = sequences.filter(sequence => sameMove(sequence[0], move)).map(sequence => sequence.slice(1))
   remaining.splice(remaining.indexOf(move.die), 1)
   selected = board.bar[player] > 0 ? 'bar' : null
   notice = board.off[player] === 15 ? 'Все фишки выведены. Завершите ход, чтобы зафиксировать победу.' : firstMoves(sequences).length ? 'Продолжайте ход.' : 'Все доступные ходы сыграны. Завершите ход.'
+  record(`${actor(player)}: ${moveText(move)}${hit ? ', сбита фишка соперника' : ''}.`, 'move')
   render()
 }
 
@@ -216,7 +267,9 @@ function finishTurn(): void {
     winner = player
     phase = 'over'
     notice = `${kind === 'single' ? 'Обычная победа' : kind === 'gammon' ? 'Марс' : 'Кокс'}: +${points} ${pointWord(points)} к счёту.`
+    record(`${actor(player)}: ${kind === 'single' ? 'победа' : kind === 'gammon' ? 'марс' : 'кокс'}, +${points} ${pointWord(points)}.`, 'result')
   } else {
+    if (history.length === 0) record(`${actor(player)}: пропуск хода, нет допустимых перемещений.`)
     player = opponent(player)
     phase = 'roll'
     notice = 'Бросьте кости или предложите удвоение до броска.'
@@ -236,7 +289,7 @@ function activateAction(action: string): void {
     case 'roll': if (phase === 'roll') roll(); break
     case 'finish': finishTurn(); break
     case 'new': startGame(); break
-    case 'pause': if (mode === 'demo') { paused = !paused; render() } break
+    case 'pause': if (mode === 'demo') { paused = !paused; record(paused ? 'Автоматическая игра остановлена.' : 'Автоматическая игра продолжена.'); render() } break
     case 'undo': {
       if (phase !== 'move') break
       const snapshot = history.pop()
@@ -244,6 +297,8 @@ function activateAction(action: string): void {
       board = snapshot.board
       sequences = snapshot.sequences
       remaining = snapshot.remaining
+      logEntries = logEntries.filter(entry => entry.id <= snapshot.logId)
+      record(`${actor(player)}: отмена хода ${moveText(snapshot.move)}.`)
       selected = null
       notice = 'Последний ход отменён. Выберите фишку.'
       render()
@@ -254,6 +309,7 @@ function activateAction(action: string): void {
       offerer = player
       phase = 'offer'
       notice = `${name(player)} предлагают удвоить стоимость партии. ${name(opponent(player))} должны принять или отказаться.`
+      record(`${actor(player)}: предложение удвоить куб до ×${cubeValue * 2}.`, 'cube')
       render()
       break
     case 'accept':
@@ -262,6 +318,7 @@ function activateAction(action: string): void {
       cubeValue *= 2
       phase = 'roll'
       notice = `Удвоение принято. ${name(player)} бросают кости.`
+      record(`${actor(opponent(offerer))}: удвоение принято, куб ×${cubeValue}.`, 'cube')
       offerer = null
       render()
       break
@@ -271,6 +328,7 @@ function activateAction(action: string): void {
       winner = offerer
       phase = 'over'
       notice = `${name(opponent(offerer))} отказались от удвоения. ${name(offerer)} получают ${cubeValue} ${pointWord(cubeValue)}.`
+      record(`${actor(opponent(offerer))}: отказ от удвоения. ${actor(offerer)}: +${cubeValue} ${pointWord(cubeValue)}.`, 'result')
       offerer = null
       render()
       break
@@ -352,6 +410,10 @@ app.addEventListener('change', event => {
   mode = select.value
   paused = false
   score = { light: 0, dark: 0 }
+  logEntries = []
+  nextLogId = 0
+  sessionId = newSessionId()
+  gameNumber = 0
   startGame()
 })
 
@@ -407,4 +469,4 @@ document.addEventListener('keydown', event => {
   }
 })
 
-render()
+startGame()

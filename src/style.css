@@ -123,6 +123,19 @@ button:disabled{cursor:default}
 .secondary-button:hover{background:#2b3e3d}
 .offer-actions{display:grid;gap:8px}
 .action-hint{color:#8ca09a;font-size:11px;text-align:center;margin:0 0 5px}
+.activity-panel{border-top:1px solid #324348;margin-top:18px;padding-top:17px}
+.activity-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.activity-head .eyebrow{font-size:9px}
+.activity-head>span:last-child{font-size:8px;letter-spacing:.08em;color:#788e88;white-space:nowrap}
+.file-log-status{margin-top:9px;font-size:9px;letter-spacing:.1em;color:#b9d2ae}
+.file-log-status[data-state="saving"]{color:#b6afa0}
+.file-log-status[data-state="error"]{color:#e2a28d}
+.activity-list{list-style:none;margin:10px 0 0;padding:0;max-height:190px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#55726a transparent}
+.activity-item{display:grid;gap:4px;padding:9px 0;border-top:1px solid #2e4143;color:#bbc7bc;font-size:11px;line-height:1.45}
+.activity-item time{font-size:9px;letter-spacing:.08em;color:#78908a}
+.activity-item.system{color:#91a49b}
+.activity-item.cube{color:#d8bc9e}
+.activity-item.result{color:#d5dfb9}
 .sidebar-bottom{border-top:1px solid #324348;color:#82948d;font-size:10px;line-height:1.4;padding-top:18px;margin-top:21px;display:flex;align-items:center;gap:10px}
 .tiny-diamond{font-size:18px;color:#b7d1a7}
 .site-footer{height:58px;border-top:1px solid #334148;display:flex;align-items:center;justify-content:space-between;color:#65797c;font-size:9px;letter-spacing:.21em;font-weight:700}
@@ -155,7 +168,8 @@ button:disabled{cursor:default}
 .move-options{grid-column:2;grid-row:4}
 .actions{grid-column:2;grid-row:4;align-self:end}
 .move-options:has(+ .actions){padding-bottom:85px}
-.sidebar-bottom{margin-top:0}
+.activity-panel{grid-column:1/-1;grid-row:5;margin-top:0}
+.sidebar-bottom{grid-row:6;margin-top:0}
 .board-surface{height:clamp(440px,58vw,600px)}
 .checker{width:min(6vw,47px);height:min(6vw,47px);margin-bottom:-16px}
 .bottom .checker{margin-top:-16px}
@@ -198,6 +212,7 @@ button:disabled{cursor:default}
 .turn-panel{margin-top:20px;min-height:0;padding-bottom:20px}
 .move-options{max-height:180px;padding-bottom:0!important}
 .actions{margin-top:0;padding-top:20px}
+.activity-panel{margin-top:21px}
 .sidebar-bottom{margin-top:20px}
 .site-footer{font-size:7px}
 .site-footer span:last-child{display:none}

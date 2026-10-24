@@ -5,8 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "start": "node server.mjs",
     "build": "tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types --test src/engine.test.ts src/bot.test.ts"
+    "test": "node --experimental-strip-types --test src/engine.test.ts src/bot.test.ts server/log-api.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.18.6",

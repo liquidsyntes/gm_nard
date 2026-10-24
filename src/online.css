@@ -1,0 +1,45 @@
+.online-shell{max-width:1540px;min-height:100vh;margin:auto;padding:0 48px}
+.online-main{padding:38px 0 70px}
+.online-nav{display:flex;gap:9px;margin-bottom:28px}
+.online-nav button{border:1px solid #415852;border-radius:6px;background:transparent;color:#a8b9ad;padding:10px 17px;font-size:12px;font-weight:700}
+.online-nav button.active{background:#d0dcb5;border-color:#d0dcb5;color:#172d2b}
+.online-sections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.online-card{background:#19272b;border:1px solid #304146;border-radius:13px;padding:27px;min-width:0}
+.online-card.wide{grid-column:1/-1}
+.online-card h2{font:600 25px Manrope,sans-serif;letter-spacing:-.04em;margin:8px 0 21px}
+.online-card h1{font:600 clamp(32px,4vw,48px) Manrope,sans-serif;letter-spacing:-.055em;margin:9px 0 13px}
+.online-card p{color:#a9b9b1;font-size:13px;line-height:1.6}
+.online-row{border-top:1px solid #33474a;min-height:57px;display:flex;align-items:center;justify-content:space-between;gap:15px;color:#dde7da;font-size:13px}
+.online-row>span:first-child{min-width:0;overflow-wrap:anywhere}
+.online-row small{color:#8fa29b;font-size:11px}
+.online-row .secondary-button{min-height:32px;padding:0 12px;font-size:11px;flex:none}
+.presence-dot{display:inline-block;width:7px;height:7px;margin-right:10px;border-radius:50%;background:#b9d7a8;box-shadow:0 0 12px #b9d7a8}
+.inline-actions{display:flex;gap:7px;flex:none}
+.inline-actions button{border:1px solid #526a61;border-radius:5px;background:#29443c;color:#e2eddb;padding:8px 10px;font-size:11px}
+.inline-actions .small-decline{background:transparent;color:#b9bfb6}
+.online-empty{margin:0 0 6px}
+.online-notice{padding:12px 15px;border:1px solid #6f8b79;border-radius:6px;color:#d9e5d0;background:#263d37;font-size:12px;margin:0 0 20px}
+.login-wrap{display:grid;place-items:center;min-height:calc(100vh - 104px);padding:35px 0 90px}
+.login-card{width:min(460px,100%);padding:36px}
+.login-card>p{margin-bottom:26px}
+.online-form{display:grid;gap:15px}
+.online-form label{display:grid;gap:8px;color:#acbfb2;font-size:11px;font-weight:700;letter-spacing:.04em}
+.online-form input{width:100%;height:45px;border:1px solid #536b62;border-radius:6px;background:#233934;color:#f1f3e9;padding:0 13px;font:600 13px 'DM Sans',sans-serif}
+.online-form .primary-button{width:100%}
+.token-result{display:grid;gap:12px;margin-top:20px;padding:16px;border:1px solid #a2b899;border-radius:7px;background:#294138;color:#e6efde;font-size:12px}
+.token-result code{display:block;padding:10px;border-radius:4px;background:#142923;overflow-wrap:anywhere;font-size:12px;user-select:all}
+.token-result .secondary-button{padding:0 14px}
+.online-game-layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:54px;align-items:start}
+.online-sidebar{min-height:0}
+.online-player-row{display:flex;align-items:center;gap:10px;border:1px solid #35474a;border-radius:7px;padding:11px;margin-top:10px;color:#e2ecdd;font-size:13px;overflow-wrap:anywhere}
+.online-player-row .player-symbol{width:23px;height:23px}
+.online-sidebar .turn-panel{min-height:0;padding-bottom:18px}
+.online-sidebar .actions{margin-top:0}
+.online-sidebar .option-list{margin:0}
+.online-sidebar .option-list button{min-height:39px}
+.online-resign{display:block;margin-top:15px;border:0;background:transparent;color:#a18d84;font-size:11px;padding:7px 0;text-align:left}
+.online-resign:hover{color:#e0aa93}
+.online-sidebar .activity-list{max-height:265px}
+@media(max-width:1130px){.online-shell{padding:0 30px}.online-game-layout{grid-template-columns:minmax(0,1fr) 280px;gap:25px}}
+@media(max-width:880px){.online-game-layout{grid-template-columns:1fr}.online-sidebar{display:block}.online-sections{grid-template-columns:1fr}.online-card.wide{grid-column:auto}}
+@media(max-width:600px){.online-shell{padding:0 14px}.online-main{padding:23px 0 45px}.online-card{padding:20px}.login-wrap{min-height:calc(100vh - 72px)}.login-card{padding:24px}.online-row{align-items:flex-start;flex-direction:column;padding:13px 0;gap:9px}.online-row .secondary-button{min-height:34px}.online-sidebar{padding:20px}.online-game-layout .board-head h1{font-size:24px}.online-game-layout .board-footer>span{font-size:9px}.site-header .header-right{gap:10px}.site-header .header-right .text-button{font-size:11px}}

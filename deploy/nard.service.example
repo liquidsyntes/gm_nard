@@ -1,0 +1,23 @@
+[Unit]
+Description=NARD short backgammon
+After=network.target
+
+[Service]
+Type=simple
+User=nard
+Group=nard
+WorkingDirectory=/opt/nard
+Environment=NODE_ENV=production
+Environment=PUBLIC_ORIGIN=https://nard.example.com
+Environment=GAME_DATA_DIR=/var/lib/nard
+Environment=GAME_LOG_DIR=/var/log/nard
+Environment=PORT=4173
+ExecStart=/usr/bin/node /opt/nard/server.mjs
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nard /var/log/nard
+
+[Install]
+WantedBy=multi-user.target

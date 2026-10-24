@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "engine:build": "tsc -p tsconfig.server.json",
+    "dev": "npm run engine:build && vite --host 127.0.0.1",
     "start": "node server.mjs",
-    "build": "tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types --test src/engine.test.ts src/bot.test.ts server/log-api.test.mjs"
+    "admin:create": "node server/admin-cli.mjs create",
+    "admin:rotate": "node server/admin-cli.mjs rotate",
+    "build": "tsc --noEmit && npm run engine:build && vite build",
+    "test": "npm run engine:build && node --experimental-strip-types --test src/engine.test.ts src/bot.test.ts server/log-api.test.mjs server/multiplayer.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.18.6",

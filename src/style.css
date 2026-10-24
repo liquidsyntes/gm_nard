@@ -16,7 +16,7 @@ button:disabled{cursor:default}
 .header-right{display:flex;align-items:center;gap:35px}
 .mode-pill{color:#a6b2ad;letter-spacing:.17em;font-size:10px;font-weight:700}
 .mode-pill span{display:inline-block;width:6px;height:6px;background:#bedbb1;border-radius:50%;margin-right:10px;vertical-align:2px;box-shadow:0 0 14px #bedbb1}
-.text-button{border:0;background:transparent;color:#e4e9df;font-size:13px;font-weight:700;padding:12px 0}
+.text-button{border:0;background:transparent;color:#e4e9df;font-size:13px;font-weight:700;padding:12px 0;text-decoration:none}
 .text-button span{margin-left:7px;color:#b9d5aa}
 .layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:54px;align-items:start;padding:44px 0 30px;flex:1}
 .game-area{min-width:0}

@@ -20,7 +20,7 @@ function validEvent(value) {
     && typeof value.text === 'string' && value.text.length > 0 && value.text.length <= 300
 }
 
-async function appendEvent(value) {
+export async function appendGameEvent(value) {
   const at = new Date().toISOString()
   const path = join(logDirectory, `game-events-${at.slice(0, 10)}.jsonl`)
   const line = JSON.stringify({ at, session: value.session, game: value.game, kind: value.kind, text: value.text }) + '\n'
@@ -53,7 +53,7 @@ export async function handleLogRequest(request, response) {
     }
     const value = JSON.parse(Buffer.concat(chunks).toString('utf8'))
     if (!validEvent(value)) { reply(response, 400, { error: 'Invalid event' }); return }
-    await appendEvent(value)
+    await appendGameEvent(value)
     reply(response, 201, { saved: true })
   } catch (error) {
     if (error instanceof SyntaxError) reply(response, 400, { error: 'Invalid JSON' })

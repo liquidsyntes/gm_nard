@@ -1,12 +1,15 @@
 import { defineConfig } from 'vite'
-import { handleLogRequest } from './server/log-api.mjs'
+import { createMultiplayerApi } from './server/multiplayer.mjs'
 
 export default defineConfig({
+  build: { rollupOptions: { input: { game: 'index.html', online: 'online.html' } } },
   plugins: [{
     name: 'local-game-log-api',
-    configureServer(server) {
-      server.middlewares.use('/api/logs', (request, response) => {
-        void handleLogRequest(request, response)
+    async configureServer(server) {
+      const api = await createMultiplayerApi()
+      server.middlewares.use((request, response, next) => {
+        if (!request.url?.startsWith('/api/')) { next(); return }
+        void api(request, response)
       })
     },
   }],

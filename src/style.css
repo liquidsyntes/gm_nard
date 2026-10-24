@@ -78,6 +78,9 @@ button:disabled{cursor:default}
 .sidebar-top{display:flex;justify-content:space-between;align-items:center}
 .sidebar-top .eyebrow{color:#90a6a1}
 .sidebar-top .eyebrow b{color:#d6e3d1;margin-left:8px}
+.mode-control{display:grid;gap:8px;margin-top:19px}
+.mode-control select{width:100%;min-height:39px;padding:0 11px;border:1px solid #425852;border-radius:6px;background:#253b39;color:#e7eee0;font:700 12px 'DM Sans',sans-serif;cursor:pointer}
+.mode-control select:focus-visible{outline:2px solid #c8dfb5;outline-offset:2px}
 .icon-button{border:1px solid #42565a;background:transparent;color:#c3d3c6;width:31px;height:31px;border-radius:50%;font-size:19px;line-height:0}
 .icon-button:hover{background:#2d4142}
 .players{margin-top:28px}
@@ -87,6 +90,7 @@ button:disabled{cursor:default}
 .player-symbol.light{background:#e9eadf}
 .player-symbol.dark{background:#2c3b41}
 .player-card strong{display:block;font-size:13px;font-weight:700}
+.player-card strong em{font-size:8px;font-style:normal;letter-spacing:.12em;color:#c9dcb4;margin-left:4px}
 .player-card small{display:block;font-size:10px;color:#8b9b98;margin-top:4px}
 .score{margin-left:auto;color:#edf0e8;font-family:Manrope,sans-serif;font-size:22px;font-weight:700;line-height:1;text-align:center}
 .score small{font-family:'DM Sans',sans-serif;font-size:9px;font-weight:500;margin-top:5px}
@@ -143,11 +147,13 @@ button:disabled{cursor:default}
 @media(max-width:880px){.layout{grid-template-columns:1fr;gap:25px}
 .sidebar{min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:12px 25px}
 .sidebar-top,.sidebar-bottom{grid-column:1/-1}
+.mode-control{grid-column:1/-1;display:flex;align-items:center;justify-content:space-between;margin:0}
+.mode-control select{width:230px}
 .players{margin-top:0}
 .turn-panel{margin-top:0}
 .dice-panel{grid-column:1}
-.move-options{grid-column:2;grid-row:3}
-.actions{grid-column:2;grid-row:3;align-self:end}
+.move-options{grid-column:2;grid-row:4}
+.actions{grid-column:2;grid-row:4;align-self:end}
 .move-options:has(+ .actions){padding-bottom:85px}
 .sidebar-bottom{margin-top:0}
 .board-surface{height:clamp(440px,58vw,600px)}
@@ -186,6 +192,8 @@ button:disabled{cursor:default}
 .board-footer{font-size:9px}
 .off-target{font-size:8px}
 .sidebar{display:flex;gap:0;padding:20px;min-height:0}
+.mode-control{display:grid;gap:8px;margin-top:18px}
+.mode-control select{width:100%}
 .players{margin-top:22px}
 .turn-panel{margin-top:20px;min-height:0;padding-bottom:20px}
 .move-options{max-height:180px;padding-bottom:0!important}

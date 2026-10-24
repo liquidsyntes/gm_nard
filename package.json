@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc --noEmit && vite build",
-    "test": "node --experimental-strip-types --test src/engine.test.ts"
+    "test": "node --experimental-strip-types --test src/engine.test.ts src/bot.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.18.6",

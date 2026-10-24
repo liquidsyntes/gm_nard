@@ -10,8 +10,7 @@ button:disabled{cursor:default}
 .shell{max-width:1540px;min-height:100vh;margin:auto;padding:0 48px;display:flex;flex-direction:column}
 .site-header{height:103px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #334148}
 .brand{display:flex;align-items:center;gap:14px}
-.brand-mark{display:grid;place-items:center;width:42px;height:42px;border:1px solid #bfc9bb;border-radius:50%;font-family:Manrope,sans-serif;font-size:22px;font-weight:800;letter-spacing:-4px;padding-right:4px}
-.brand-mark span{color:#d49d7c;font-size:20px}
+.brand-mark{display:block;width:48px;height:48px;flex:none;filter:drop-shadow(0 3px 5px #0005)}
 .brand strong{font-family:Manrope,sans-serif;display:block;font-size:19px;letter-spacing:.28em;line-height:1}
 .brand small{display:block;color:#8c9b9f;letter-spacing:.21em;font-size:8px;font-weight:700;margin-top:7px}
 .header-right{display:flex;align-items:center;gap:35px}
@@ -158,7 +157,7 @@ button:disabled{cursor:default}
 
 @media(max-width:600px){.shell{padding:0 14px}
 .site-header{height:72px}
-.brand-mark{width:35px;height:35px;font-size:19px}
+.brand-mark{width:40px;height:40px}
 .brand strong{font-size:15px}
 .brand small{font-size:7px}
 .header-right{gap:12px}

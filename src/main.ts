@@ -104,7 +104,7 @@ function render(): void {
   const offOption = moveOptions().some(move => move.to === 'off')
   const phaseLabel = phase === 'opening' ? 'Подготовка' : phase === 'offer' ? 'Решение за соперником' : phase === 'over' ? 'Партия окончена' : phase === 'roll' ? 'Ваш бросок' : firstMoves(sequences).length ? 'Ваш ход' : 'Ход завершён'
   app.innerHTML = `<div class="shell">
-    <header class="site-header"><div class="brand"><span class="brand-mark">N<span>•</span></span><div><strong>NARD</strong><small>КОРОТКИЕ НАРДЫ</small></div></div><div class="header-right"><span class="mode-pill"><span></span> ИГРА ВДВОЁМ</span><button class="text-button" data-action="rules">Правила <span>↗</span></button></div></header>
+    <header class="site-header"><div class="brand"><img class="brand-mark" src="/die-logo.svg" alt="" /><div><strong>NARD</strong><small>КОРОТКИЕ НАРДЫ</small></div></div><div class="header-right"><span class="mode-pill"><span></span> ИГРА ВДВОЁМ</span><button class="text-button" data-action="rules">Правила <span>↗</span></button></div></header>
     <main class="layout">
       <section class="game-area" aria-label="Игровое поле">
         <div class="board-head"><div><span class="eyebrow">КЛАССИЧЕСКАЯ ПАРТИЯ</span><h1>Игра начинается здесь.</h1></div><div class="board-head-meta"><span>24 ПУНКТА</span><i></i><span>15 ФИШЕК</span></div></div>

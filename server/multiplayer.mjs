@@ -87,6 +87,7 @@ function visibleGame(game, userId) {
     turn: game.turn,
     phase: game.phase,
     dice: game.dice,
+    lastRoll: game.lastRoll ?? null,
     remaining: game.remaining,
     cubeValue: game.cubeValue,
     cubeOwner: game.cubeOwner,
@@ -111,7 +112,8 @@ function startGame(from, to) {
   const turn = lightRoll > darkRoll ? 'light' : 'dark'
   const game = {
     id: newId(), players: { light: from, dark: to }, board: initialBoard(), turn, phase: 'move',
-    dice: [lightRoll, darkRoll], remaining: [lightRoll, darkRoll], cubeValue: 1,
+    dice: [lightRoll, darkRoll], lastRoll: { id: newId(), kind: 'opening', player: turn, dice: [lightRoll, darkRoll], at: now() },
+    remaining: [lightRoll, darkRoll], cubeValue: 1,
     cubeOwner: null, offerer: null, result: null, events: [], version: 0, createdAt: now(), updatedAt: now(),
   }
   event(game, 'roll', `Первый бросок: светлые ${lightRoll}, тёмные ${darkRoll}. Начинают ${turn === 'light' ? 'светлые' : 'тёмные'}.`)
@@ -328,6 +330,7 @@ export async function createMultiplayerApi() {
             const first = randomInt(1, 7)
             const second = randomInt(1, 7)
             game.dice = [first, second]
+            game.lastRoll = { id: newId(), kind: 'turn', player: color, dice: [first, second], at: now() }
             game.remaining = first === second ? [first, first, first, first] : [first, second]
             add('roll', `${color === 'light' ? 'Светлые' : 'Тёмные'}: бросок ${first} и ${second}${first === second ? ', дубль' : ''}.`)
             if (legalSequences(game.board, color, game.remaining).length) game.phase = 'move'

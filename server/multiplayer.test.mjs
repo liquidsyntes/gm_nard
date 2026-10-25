@@ -69,6 +69,9 @@ test('admin tokens, online invitation and server-validated moves survive restart
     const gameResponse = await call(`/api/games/${gameId}`, aliceCookie, null, 'GET')
     assert.equal(gameResponse.status, 200)
     const { game } = await gameResponse.json()
+    assert.equal(game.lastRoll.kind, 'opening')
+    assert.equal(game.lastRoll.player, game.turn)
+    assert.deepEqual(game.lastRoll.dice, game.dice)
     const activeCookie = game.turn === 'light' ? aliceCookie : bobCookie
     const waitingCookie = game.turn === 'light' ? bobCookie : aliceCookie
     const waitingMove = await call(`/api/games/${gameId}/move`, waitingCookie, { ...game.legalMoves[0], version: game.version })
@@ -84,6 +87,7 @@ test('admin tokens, online invitation and server-validated moves survive restart
 
     let current = (await (await call(`/api/games/${gameId}`, aliceCookie, null, 'GET')).json()).game
     let steps = 0
+    let regularRollSeen = false
     while (current.phase !== 'over' && steps < 2000) {
       const cookie = current.turn === 'light' ? aliceCookie : bobCookie
       const active = (await (await call(`/api/games/${gameId}`, cookie, null, 'GET')).json()).game
@@ -92,9 +96,16 @@ test('admin tokens, online invitation and server-validated moves survive restart
       const response = await call(`/api/games/${gameId}/${action}`, cookie, payload)
       assert.equal(response.status, 200)
       current = (await response.json()).game
+      if (action === 'roll') {
+        regularRollSeen = true
+        assert.equal(current.lastRoll.kind, 'turn')
+        assert.equal(current.lastRoll.player, active.turn)
+        assert.deepEqual(current.lastRoll.dice, current.dice)
+      }
       steps++
     }
     assert.equal(current.phase, 'over', `game did not finish after ${steps} actions`)
+    assert.equal(regularRollSeen, true)
     assert.ok(current.result.points >= 1)
     const logFiles = await readdir(join(directory, 'logs'))
     assert.ok((await readFile(join(directory, 'logs', logFiles[0]), 'utf8')).includes('"kind":"move"'))

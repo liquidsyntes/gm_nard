@@ -9,6 +9,7 @@ interface Lobby { online: User[]; incoming: Invitation[]; outgoing: Invitation[]
 interface Game {
   id: string; players: Record<Player, string>; color: Player; board: Board; turn: Player;
   phase: 'move' | 'roll' | 'offer' | 'over'; dice: number[]; remaining: number[];
+  lastRoll: { id: string; kind: 'opening' | 'turn'; player: Player; dice: number[]; at: string } | null;
   cubeValue: number; cubeOwner: Player | null; offerer: Player | null;
   result: { winner: Player; kind: string; points: number } | null;
   events: { at: string; kind: string; text: string }[]; version: number; legalMoves: Move[]
@@ -34,10 +35,47 @@ let refreshTimer: number | undefined
 let liveStatus = 'Подключение'
 let refreshPending = false
 let refreshAgain = false
+let seenRollKey: string | null = null
+let rolling = false
+let rollingDice: [number, number] = [1, 1]
+let rollTickTimer: number | undefined
+let rollEndTimer: number | undefined
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
 const sideName = (side: Player) => side === 'light' ? 'Светлые' : 'Тёмные'
 const time = (value: string) => new Date(value).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+const pipPositions: Record<number, number[]> = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] }
+const randomVisualDie = () => Math.floor(Math.random() * 6) + 1
+
+function pipHtml(value: number): string {
+  return Array.from({ length: 9 }, (_, index) => `<span class="online-pip ${pipPositions[value]?.includes(index) ? 'active' : ''}"></span>`).join('')
+}
+
+function stopRollAnimation(): void {
+  if (rollTickTimer !== undefined) window.clearInterval(rollTickTimer)
+  if (rollEndTimer !== undefined) window.clearTimeout(rollEndTimer)
+  rollTickTimer = undefined
+  rollEndTimer = undefined
+  rolling = false
+}
+
+function setGame(next: Game): void {
+  game = next
+  const roll = next.lastRoll
+  if (!roll) return
+  const key = `${next.id}:${roll.id}`
+  if (key === seenRollKey) return
+  seenRollKey = key
+  stopRollAnimation()
+  if (next.phase === 'over' || Date.now() - Date.parse(roll.at) > 10_000 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  rolling = true
+  rollingDice = [randomVisualDie(), randomVisualDie()]
+  rollTickTimer = window.setInterval(() => {
+    rollingDice = [randomVisualDie(), randomVisualDie()]
+    app.querySelectorAll<HTMLElement>('[data-online-die]').forEach((element, index) => { element.innerHTML = pipHtml(rollingDice[index]) })
+  }, 75)
+  rollEndTimer = window.setTimeout(() => { stopRollAnimation(); render() }, 1050)
+}
 
 async function api<T>(path: string, method = 'GET', body?: object): Promise<T> {
   const response = await fetch(`${BASE}${path.replace(/^\//, '')}`, { method, headers: body ? { 'Content-Type': 'application/json' } : undefined, body: body ? JSON.stringify(body) : undefined })
@@ -52,7 +90,7 @@ function playerName(side: Player): string {
 }
 
 function canChoose(from: Origin): boolean {
-  return !!game && game.phase === 'move' && game.turn === game.color && game.legalMoves.some(move => move.from === from)
+  return !!game && !rolling && game.phase === 'move' && game.turn === game.color && game.legalMoves.some(move => move.from === from)
 }
 
 function options(): Move[] {
@@ -90,6 +128,7 @@ function moveButtons(): string {
 
 function gameActions(): string {
   if (!game) return ''
+  if (rolling) return '<p class="action-hint">Кости катятся. Ход станет доступен после броска.</p>'
   if (game.phase === 'over') return '<button class="secondary-button" data-action="lobby">В лобби</button>'
   if (game.phase === 'offer') {
     return game.offerer !== game.color ? '<button class="primary-button" data-action="accept">Принять удвоение</button><button class="secondary-button" data-action="decline">Отказаться</button>' : '<p class="action-hint">Ожидаем решение соперника.</p>'
@@ -99,13 +138,27 @@ function gameActions(): string {
   return moveButtons() || '<p class="action-hint">Выберите свою фишку на поле.</p>'
 }
 
+function diceHtml(): string {
+  const roll = game!.lastRoll
+  const values = rolling ? rollingDice : roll?.dice ?? game!.dice
+  const first = values[0] ?? 1
+  const second = values[1] ?? 1
+  const opening = roll?.kind === 'opening'
+  const actorName = roll ? playerName(roll.player) : 'Последний бросок'
+  const caption = rolling ? 'Кости катятся...' : opening
+    ? `${playerName('light')}: ${first}, ${playerName('dark')}: ${second}. Начинает ${actorName}.`
+    : roll ? `Бросок: ${actorName}. Выпало ${first} и ${second}${first === second ? ', дубль' : ''}.`
+      : `Выпало ${first} и ${second}.`
+  return `<section class="online-dice-stage ${rolling ? 'rolling' : ''}" aria-label="Бросок костей"><span class="eyebrow">${opening ? 'ПЕРВЫЙ БРОСОК' : 'ПОСЛЕДНИЙ БРОСОК'}</span><div class="online-dice-actor"><span class="player-symbol ${roll?.player ?? 'light'}"></span><strong>${opening ? 'Оба игрока' : escapeHtml(actorName)}</strong></div><div class="online-dice-pair" aria-hidden="true"><span class="online-die" data-online-die="0">${pipHtml(first)}</span><span class="online-die" data-online-die="1">${pipHtml(second)}</span></div>${opening ? `<div class="online-dice-names"><span>${escapeHtml(playerName('light'))}</span><span>${escapeHtml(playerName('dark'))}</span></div>` : ''}<p class="online-dice-caption" role="status" aria-live="polite">${escapeHtml(caption)}</p></section>`
+}
+
 function gameHtml(): string {
   const current = game!
   const status = current.phase === 'over' ? `Победа: ${playerName(current.result!.winner)}` : current.phase === 'offer' ? 'Решение по удвоению' : current.turn === current.color ? 'Ваш ход' : 'Ход соперника'
   const events = [...current.events].reverse().map(entry => `<li class="activity-item ${entry.kind}"><time>${time(entry.at)}</time><span>${escapeHtml(entry.text)}</span></li>`).join('')
   const bearOff = options().some(move => move.to === 'off')
   return `<div class="online-game-layout"><section class="game-area"><div class="board-head"><div><span class="eyebrow">ОНЛАЙН-ПАРТИЯ</span><h1>${escapeHtml(playerName('light'))} / ${escapeHtml(playerName('dark'))}</h1></div><div class="board-head-meta">ВАШ ЦВЕТ: ${sideName(current.color).toUpperCase()}</div></div>${boardHtml()}<div class="board-footer"><button class="off-target ${bearOff ? 'possible' : ''}" data-off>◎ ВЫВЕСТИ ФИШКУ</button><span>Ходы подтверждает сервер</span></div></section>
-    <aside class="sidebar online-sidebar"><div class="sidebar-top"><span class="eyebrow">${status.toUpperCase()}</span><button class="icon-button" data-action="lobby" aria-label="В лобби">↖</button></div><div class="online-player-row"><span class="player-symbol light"></span>${escapeHtml(playerName('light'))}</div><div class="online-player-row"><span class="player-symbol dark"></span>${escapeHtml(playerName('dark'))}</div><div class="turn-panel"><strong>${status}</strong><p>Кости: ${current.dice.join(' и ') || 'ожидают броска'} · Куб ×${current.cubeValue}</p>${current.result ? `<p>Результат: ${current.result.points} очк.</p>` : ''}</div><div class="actions">${gameActions()}</div>${current.phase !== 'over' ? '<button class="online-resign" data-action="resign">Сдаться</button>' : ''}<div class="activity-panel"><div class="activity-head"><span class="eyebrow">ХОД ПАРТИИ</span><span>ЗАПИСИ · ${current.events.length}</span></div><ol class="activity-list">${events}</ol></div></aside></div>`
+    <aside class="sidebar online-sidebar"><div class="sidebar-top"><span class="eyebrow">${status.toUpperCase()}</span><button class="icon-button" data-action="lobby" aria-label="В лобби">↖</button></div><div class="online-player-row"><span class="player-symbol light"></span>${escapeHtml(playerName('light'))}</div><div class="online-player-row"><span class="player-symbol dark"></span>${escapeHtml(playerName('dark'))}</div>${diceHtml()}<div class="turn-panel"><strong>${status}</strong><p>Куб ×${current.cubeValue}</p>${current.result ? `<p>Результат: ${current.result.points} очк.</p>` : ''}</div><div class="actions">${gameActions()}</div>${current.phase !== 'over' ? '<button class="online-resign" data-action="resign">Сдаться</button>' : ''}<div class="activity-panel"><div class="activity-head"><span class="eyebrow">ХОД ПАРТИИ</span><span>ЗАПИСИ · ${current.events.length}</span></div><ol class="activity-list">${events}</ol></div></aside></div>`
 }
 
 function lobbyHtml(): string {
@@ -139,18 +192,21 @@ async function refresh(): Promise<void> {
     lobby = nextLobby
     if (screen === 'lobby') {
       const active = nextLobby.games.find(item => item.phase !== 'over')
-      if (active) { screen = 'game'; game = (await api<{ game: Game; users: User[] }>(`/api/games/${active.id}`)).game }
+      if (active) {
+        const result = await api<{ game: Game; users: User[] }>(`/api/games/${active.id}`)
+        screen = 'game'; setGame(result.game); gameUsers = result.users
+      }
     }
     if (screen === 'game' && game) {
       const result = await api<{ game: Game; users: User[] }>(`/api/games/${game.id}`)
-      game = result.game
+      setGame(result.game)
       gameUsers = result.users
     }
     if (screen === 'admin') adminUsers = (await api<{ users: User[] }>('/api/admin/users')).users
     render()
   } catch (error) {
     if (error instanceof ApiRequestError && error.status === 401) {
-      stopLive(); me = null; game = null; screen = 'lobby'; notice = 'Сессия завершена. Войдите снова.'; render(); return
+      stopLive(); stopRollAnimation(); me = null; game = null; screen = 'lobby'; notice = 'Сессия завершена. Войдите снова.'; render(); return
     }
     notice = error instanceof Error ? error.message : 'Не удалось обновить данные'
     render()
@@ -176,7 +232,7 @@ function connectLive(): void {
     liveStatus = 'переподключение'; render()
     void api('/api/auth/me').catch(error => {
       if (error instanceof ApiRequestError && error.status === 401) {
-        stopLive(); me = null; game = null; screen = 'lobby'; notice = 'Сессия завершена. Войдите снова.'; render()
+        stopLive(); stopRollAnimation(); me = null; game = null; screen = 'lobby'; notice = 'Сессия завершена. Войдите снова.'; render()
       }
     })
   }
@@ -185,7 +241,7 @@ function connectLive(): void {
 
 async function openGame(id: string): Promise<void> {
   const result = await api<{ game: Game; users: User[] }>(`/api/games/${id}`)
-  game = result.game
+  setGame(result.game)
   gameUsers = result.users
   selected = null
   screen = 'game'
@@ -197,7 +253,7 @@ async function gameAction(action: string, payload: object = {}): Promise<void> {
   if (!game) return
   try {
     const result = await api<{ game: Game; fileLogged: boolean }>(`/api/games/${game.id}/${action}`, 'POST', { ...payload, version: game.version })
-    game = result.game
+    setGame(result.game)
     selected = null
     notice = result.fileLogged ? '' : 'Ход сохранён, но файловый журнал недоступен.'
     render()
@@ -211,7 +267,7 @@ app.addEventListener('submit', event => {
     const token = (new FormData(form).get('token') || '').toString()
     form.reset()
     void api<{ user: User }>('/api/auth/login', 'POST', { token }).then(async result => {
-      me = result.user; screen = 'lobby'; game = null; revealedToken = ''; notice = ''; connectLive(); await refresh()
+      stopRollAnimation(); seenRollKey = null; me = result.user; screen = 'lobby'; game = null; revealedToken = ''; notice = ''; connectLive(); await refresh()
     }).catch(error => { notice = error.message; render() })
   }
   if (form.dataset.form === 'create-user') {
@@ -226,9 +282,9 @@ app.addEventListener('click', event => {
   const target = event.target as HTMLElement
   const action = target.closest<HTMLElement>('[data-action]')?.dataset.action
   if (action) {
-    if (action === 'logout') void api('/api/auth/logout', 'POST').catch(() => {}).finally(() => { stopLive(); me = null; game = null; screen = 'lobby'; revealedToken = ''; notice = ''; render() })
-    if (action === 'lobby') { screen = 'lobby'; game = null; selected = null; notice = ''; void refresh() }
-    if (action === 'admin') { screen = 'admin'; revealedToken = ''; notice = ''; void refresh() }
+    if (action === 'logout') void api('/api/auth/logout', 'POST').catch(() => {}).finally(() => { stopLive(); stopRollAnimation(); me = null; game = null; screen = 'lobby'; revealedToken = ''; notice = ''; render() })
+    if (action === 'lobby') { stopRollAnimation(); screen = 'lobby'; game = null; selected = null; notice = ''; void refresh() }
+    if (action === 'admin') { stopRollAnimation(); screen = 'admin'; revealedToken = ''; notice = ''; void refresh() }
     if (action === 'copy-token' && revealedToken) {
       if (!navigator.clipboard) { notice = 'Скопируйте токен вручную.'; render() }
       else void navigator.clipboard.writeText(revealedToken).then(() => { notice = 'Токен скопирован.'; render() }).catch(() => { notice = 'Скопируйте токен вручную.'; render() })

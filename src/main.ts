@@ -1,6 +1,8 @@
 import './style.css'
+import './board-dice.css'
 import { applyMove, firstMoves, initialBoard, legalSequences, opponent, resultKind, resultPoints, sameMove } from './engine.ts'
 import { chooseBotPlay, shouldAcceptDouble, shouldOfferDouble } from './bot.ts'
+import { pipHtml } from './board-dice.ts'
 import type { Board, Destination, Move, Origin, Player } from './engine.ts'
 
 type Phase = 'opening' | 'roll' | 'move' | 'offer' | 'over'
@@ -15,6 +17,9 @@ let board = initialBoard()
 let phase: Phase = 'opening'
 let player: Player = 'light'
 let dice: number[] = []
+let lastRoll: { kind: 'opening' | 'turn'; player: Player; dice: [number, number] } | null = null
+let diceRolling = false
+let diceRollTimer: number | undefined
 let remaining: number[] = []
 let sequences: Move[][] = []
 let selected: Origin | null = null
@@ -94,7 +99,7 @@ function formatDestination(to: Destination): string {
 }
 
 function canSelect(from: Origin): boolean {
-  return phase === 'move' && !isBot(player) && firstMoves(sequences).some(move => move.from === from)
+  return phase === 'move' && !diceRolling && !isBot(player) && firstMoves(sequences).some(move => move.from === from)
 }
 
 function moveOptions(): Move[] {
@@ -122,15 +127,17 @@ function rowHtml(points: number[], row: 'top' | 'bottom'): string {
   return `<div class="board-row ${row}">${points.slice(0, 6).map(point => pointHtml(point, row)).join('')}<div class="bar-spacer" aria-hidden="true"></div>${points.slice(6).map(point => pointHtml(point, row)).join('')}</div>`
 }
 
-function diceHtml(): string {
-  if (dice.length === 0) return '<span class="dice-empty">Кости ждут броска</span>'
-  const available = [...remaining]
-  return dice.map(die => {
-    const index = available.indexOf(die)
-    const used = index < 0
-    if (!used) available.splice(index, 1)
-    return `<span class="die ${used ? 'used' : ''}" aria-label="${die}${used ? ', сыграна' : ''}">${dieLabel(die)}</span>`
-  }).join('')
+function boardDiceHtml(side: Player): string {
+  if (!lastRoll) return ''
+  const values = lastRoll.kind === 'opening' ? [lastRoll.dice[side === 'light' ? 0 : 1]] : lastRoll.player === side ? lastRoll.dice : []
+  if (!values.length) return ''
+  return `<div class="board-dice ${side} ${diceRolling ? 'rolling' : ''}" role="status" aria-label="${name(side)}: выпало ${values.join(' и ')}"><span class="board-dice-caption">${name(side)} · ${values.join(' + ')}</span><span class="board-dice-pair" aria-hidden="true">${values.map(value => `<span class="board-die">${pipHtml(value)}</span>`).join('')}</span></div>`
+}
+
+function startDiceAnimation(): void {
+  if (diceRollTimer !== undefined) window.clearTimeout(diceRollTimer)
+  diceRolling = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  if (diceRolling) diceRollTimer = window.setTimeout(() => { diceRolling = false; diceRollTimer = undefined; render() }, 1050)
 }
 
 function playerCard(side: Player): string {
@@ -141,6 +148,7 @@ function playerCard(side: Player): string {
 }
 
 function actionHtml(): string {
+  if (diceRolling && mode !== 'demo') return '<p class="action-hint">Кости катятся. Ход станет доступен после броска.</p>'
   if (mode === 'demo') return `<p class="action-hint">${paused ? 'Автоматическая партия остановлена.' : botBusy ? 'Бот рассчитывает ход...' : phase === 'over' ? 'Следующая партия начнётся автоматически.' : 'Боты играют автоматически.'}</p><button class="${paused ? 'primary-button' : 'secondary-button'}" data-action="pause">${paused ? 'Продолжить' : 'Пауза'}</button>`
   if (isAutomated()) return `<p class="action-hint">${botBusy ? 'Бот рассчитывает ход...' : 'Бот играет, подождите...'}</p>`
   if (phase === 'opening') return '<button class="primary-button" data-action="open">Определить первый ход <span>↗</span></button>'
@@ -173,7 +181,7 @@ function render(): void {
         <div class="board-head"><div><span class="eyebrow">КЛАССИЧЕСКАЯ ПАРТИЯ</span><h1>Игра начинается здесь.</h1></div><div class="board-head-meta"><span>24 ПУНКТА</span><i></i><span>15 ФИШЕК</span></div></div>
         <div class="board-frame"><div class="board-surface">
           ${rowHtml([12,13,14,15,16,17,18,19,20,21,22,23], 'top')}
-          <div class="board-middle"><div class="rail-label">ВНЕ ИГРЫ <strong>${board.off.dark}</strong><span class="rail-token dark"></span></div><button class="bar-zone ${barOption ? 'possible' : ''} ${selected === 'bar' ? 'selected' : ''}" data-bar="true" aria-label="Бар: ${board.bar.light} светлых, ${board.bar.dark} тёмных фишек"><span class="bar-title">БАР</span><span class="bar-group dark">${Array.from({length: Math.min(board.bar.dark, 4)}, () => '<span class="mini-checker dark"></span>').join('')}${board.bar.dark > 4 ? `<b>+${board.bar.dark - 4}</b>` : ''}</span><span class="bar-group light">${Array.from({length: Math.min(board.bar.light, 4)}, () => '<span class="mini-checker light"></span>').join('')}${board.bar.light > 4 ? `<b>+${board.bar.light - 4}</b>` : ''}</span></button><div class="rail-label right"><span class="rail-token light"></span>ВНЕ ИГРЫ <strong>${board.off.light}</strong></div></div>
+          <div class="board-middle"><div class="rail-half"><div class="rail-label">ВНЕ ИГРЫ <strong>${board.off.dark}</strong><span class="rail-token dark"></span></div>${boardDiceHtml('light')}</div><button class="bar-zone ${barOption ? 'possible' : ''} ${selected === 'bar' ? 'selected' : ''}" data-bar="true" aria-label="Бар: ${board.bar.light} светлых, ${board.bar.dark} тёмных фишек"><span class="bar-title">БАР</span><span class="bar-group dark">${Array.from({length: Math.min(board.bar.dark, 4)}, () => '<span class="mini-checker dark"></span>').join('')}${board.bar.dark > 4 ? `<b>+${board.bar.dark - 4}</b>` : ''}</span><span class="bar-group light">${Array.from({length: Math.min(board.bar.light, 4)}, () => '<span class="mini-checker light"></span>').join('')}${board.bar.light > 4 ? `<b>+${board.bar.light - 4}</b>` : ''}</span></button><div class="rail-half"><div class="rail-label right"><span class="rail-token light"></span>ВНЕ ИГРЫ <strong>${board.off.light}</strong></div>${boardDiceHtml('dark')}</div></div>
           ${rowHtml([11,10,9,8,7,6,5,4,3,2,1,0], 'bottom')}
         </div></div>
         <div class="board-footer"><button class="off-target ${offOption ? 'possible' : ''}" data-destination="off"><span class="target-icon">◎</span><span>ВЫВЕСТИ ФИШКУ</span></button><span>Светлые движутся от 24 к 1 <span class="footer-arrow">↘</span></span></div>
@@ -182,7 +190,7 @@ function render(): void {
         <label class="mode-control"><span class="eyebrow">РЕЖИМ ИГРЫ</span><select aria-label="Режим игры" data-mode><option value="local" ${mode === 'local' ? 'selected' : ''}>Два игрока</option><option value="bot" ${mode === 'bot' ? 'selected' : ''}>Против бота</option><option value="demo" ${mode === 'demo' ? 'selected' : ''}>Бот против бота</option></select></label>
         <div class="players">${playerCard('light')}<div class="versus">VS <span>•</span> ${phase === 'over' ? 'ФИНИШ' : 'ХОД'}</div>${playerCard('dark')}</div>
         <div class="turn-panel" aria-live="polite"><span class="eyebrow">${phaseLabel.toUpperCase()}</span><strong>${phase === 'offer' ? name(opponent(offerer!)) : phase === 'over' ? `${name(winner!)} победили` : phase === 'opening' ? 'Кто начнёт?' : name(player)}</strong><p>${notice}</p></div>
-        <div class="dice-panel"><div class="dice-title"><span class="eyebrow">ИГРОВЫЕ КОСТИ</span><span class="cube">КУБ <b>×${cubeValue}</b>${cubeOwner ? ` · ${name(cubeOwner)}` : ''}</span></div><div class="dice">${diceHtml()}</div></div>
+        <div class="dice-panel"><div class="dice-title"><span class="eyebrow">КУБ УДВОЕНИЯ</span><span class="cube"><b>×${cubeValue}</b>${cubeOwner ? ` · ${name(cubeOwner)}` : ''}</span></div></div>
         ${optionsHtml()}<div class="actions">${actionHtml()}</div>${logHtml()}
         <div class="sidebar-bottom"><span class="tiny-diamond">◇</span> Первый, кто выведет все 15 фишек, побеждает.</div>
       </aside>
@@ -195,6 +203,10 @@ function render(): void {
 }
 
 function startGame(): void {
+  if (diceRollTimer !== undefined) window.clearTimeout(diceRollTimer)
+  diceRollTimer = undefined
+  diceRolling = false
+  lastRoll = null
   gameVersion++
   gameNumber++
   botPlan = []
@@ -222,12 +234,14 @@ function openingRoll(): void {
   while (light === dark) { light = randomDie(); dark = randomDie() }
   player = light > dark ? 'light' : 'dark'
   dice = [light, dark]
+  lastRoll = { kind: 'opening', player, dice: [light, dark] }
   remaining = [...dice]
   sequences = legalSequences(board, player, remaining)
   botPlan = []
   phase = 'move'
   notice = `Светлые выбросили ${light}, тёмные ${dark}. ${name(player)} начинают и играют оба числа.`
   record(`Первый бросок: светлые ${light}, тёмные ${dark}. Начинают ${name(player).toLowerCase()}.`, 'roll')
+  startDiceAnimation()
   render()
 }
 
@@ -235,6 +249,7 @@ function roll(): void {
   const first = randomDie()
   const second = randomDie()
   dice = first === second ? [first, first, first, first] : [first, second]
+  lastRoll = { kind: 'turn', player, dice: [first, second] }
   remaining = [...dice]
   sequences = legalSequences(board, player, remaining)
   botPlan = []
@@ -243,11 +258,12 @@ function roll(): void {
   phase = 'move'
   notice = sequences.length ? first === second ? `Дубль ${first}:${second}. Можно сделать четыре хода.` : `Выпало ${first} и ${second}. Выберите фишку.` : 'Допустимых ходов нет. Передайте ход сопернику.'
   record(`${actor(player)}: бросок ${first} и ${second}${first === second ? ', дубль' : ''}.`, 'roll')
+  startDiceAnimation()
   render()
 }
 
 function play(move: Move): void {
-  if (phase !== 'move' || !firstMoves(sequences).some(candidate => sameMove(candidate, move))) return
+  if (phase !== 'move' || diceRolling || !firstMoves(sequences).some(candidate => sameMove(candidate, move))) return
   history.push({ board, sequences, remaining: [...remaining], logId: nextLogId, move })
   const hit = move.to !== 'off' && board.points[move.to] === (player === 'light' ? -1 : 1)
   board = applyMove(board, player, move)
@@ -340,7 +356,7 @@ function activateAction(action: string): void {
 
 function queueBotStep(): void {
   if (botTimer !== undefined) window.clearTimeout(botTimer)
-  if (!isAutomated() || paused || rulesOpen || botBusy) return
+  if (!isAutomated() || paused || rulesOpen || botBusy || diceRolling) return
   const delay = phase === 'over' ? 2200 : mode === 'demo' ? 650 : 500
   botTimer = window.setTimeout(runBotStep, delay)
 }
@@ -387,7 +403,7 @@ function requestBotPlay(): void {
 }
 
 function runBotStep(): void {
-  if (!isAutomated() || paused || rulesOpen || botBusy) return
+  if (!isAutomated() || paused || rulesOpen || botBusy || diceRolling) return
   if (phase === 'opening') { openingRoll(); return }
   if (phase === 'over') { startGame(); return }
   if (phase === 'offer') {

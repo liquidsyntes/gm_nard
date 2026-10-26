@@ -1,0 +1,17 @@
+.rail-half{min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:5px 5px 4px}
+.rail-half .rail-label{align-self:stretch;min-height:20px;padding-left:12px}
+.rail-half .rail-label.right{padding:0 12px 0 0}
+.board-dice{min-width:0;display:flex;flex-direction:column;align-items:center;gap:3px}
+.board-dice-caption{color:#43554d;font-size:9px;font-weight:800;letter-spacing:.1em;white-space:nowrap}
+.board-dice-pair{display:flex;justify-content:center;align-items:center;gap:10px}
+.board-die{width:49px;height:49px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);place-items:center;padding:8px;border-radius:9px;border:1px solid #fff;background:#f3f1e5;box-shadow:0 4px 0 #b6b9a8,0 6px 10px #46504866,inset 0 0 0 2px #ffffff66}
+.board-dice.dark .board-die{background:#34474a;border-color:#7c9691;box-shadow:0 4px 0 #263638,0 6px 10px #46504866,inset 0 0 0 2px #ffffff19}
+.board-pip{width:7px;height:7px;border-radius:50%;opacity:0}
+.board-pip.active{opacity:1;background:#344d48;box-shadow:inset 0 1px 2px #111a1a99}
+.board-dice.dark .board-pip.active{background:#e9eadf;box-shadow:inset 0 1px 2px #0007}
+.board-dice.rolling .board-die:first-child{animation:board-die-roll-left 1.05s ease-out both}
+.board-dice.rolling .board-die:last-child:not(:first-child){animation:board-die-roll-right 1.05s ease-out both}
+@keyframes board-die-roll-left{0%{transform:translate(-9px,-13px) rotate(-28deg) scale(.84)}35%{transform:translate(6px,4px) rotate(18deg) scale(1.08)}65%{transform:translate(-3px,-3px) rotate(-10deg)}100%{transform:none}}
+@keyframes board-die-roll-right{0%{transform:translate(10px,-14px) rotate(31deg) scale(.82)}38%{transform:translate(-6px,5px) rotate(-21deg) scale(1.07)}70%{transform:translate(3px,-3px) rotate(9deg)}100%{transform:none}}
+@media(max-width:600px){.rail-half{padding:3px 2px}.rail-half .rail-label{min-height:15px;padding-left:3px}.rail-half .rail-label.right{padding-right:3px}.board-dice-caption{font-size:7px;letter-spacing:.04em}.board-dice-pair{gap:6px}.board-die{width:35px;height:35px;padding:6px;border-radius:7px}.board-pip{width:5px;height:5px}}
+@media(prefers-reduced-motion:reduce){.board-dice.rolling .board-die{animation:none}}

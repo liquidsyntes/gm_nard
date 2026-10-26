@@ -1,6 +1,8 @@
 import './style.css'
+import './board-dice.css'
 import './online.css'
 import type { Board, Move, Origin, Player } from './engine.ts'
+import { pipHtml } from './board-dice.ts'
 
 interface User { id: string; name: string; role: 'admin' | 'player'; disabled: boolean }
 interface Invitation { id: string; from?: string; to?: string; createdAt: string }
@@ -44,12 +46,7 @@ let rollEndTimer: number | undefined
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]!)
 const sideName = (side: Player) => side === 'light' ? 'Светлые' : 'Тёмные'
 const time = (value: string) => new Date(value).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
-const pipPositions: Record<number, number[]> = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] }
 const randomVisualDie = () => Math.floor(Math.random() * 6) + 1
-
-function pipHtml(value: number): string {
-  return Array.from({ length: 9 }, (_, index) => `<span class="online-pip ${pipPositions[value]?.includes(index) ? 'active' : ''}"></span>`).join('')
-}
 
 function stopRollAnimation(): void {
   if (rollTickTimer !== undefined) window.clearInterval(rollTickTimer)
@@ -72,7 +69,7 @@ function setGame(next: Game): void {
   rollingDice = [randomVisualDie(), randomVisualDie()]
   rollTickTimer = window.setInterval(() => {
     rollingDice = [randomVisualDie(), randomVisualDie()]
-    app.querySelectorAll<HTMLElement>('[data-online-die]').forEach((element, index) => { element.innerHTML = pipHtml(rollingDice[index]) })
+    app.querySelectorAll<HTMLElement>('[data-board-die]').forEach(element => { element.innerHTML = pipHtml(rollingDice[Number(element.dataset.boardDie)]) })
   }, 75)
   rollEndTimer = window.setTimeout(() => { stopRollAnimation(); render() }, 1050)
 }
@@ -116,7 +113,7 @@ function boardHtml(): string {
   const barPossible = canChoose('bar')
   return `<div class="board-frame"><div class="board-surface">
     ${rowHtml([12,13,14,15,16,17,18,19,20,21,22,23], 'top')}
-    <div class="board-middle"><div class="rail-label">ВНЕ ИГРЫ <strong>${board.off.dark}</strong><span class="rail-token dark"></span></div><button class="bar-zone ${barPossible ? 'possible' : ''} ${selected === 'bar' ? 'selected' : ''}" data-bar aria-label="Бар: ${board.bar.light} светлых, ${board.bar.dark} тёмных"><span class="bar-title">БАР</span><span class="bar-group dark">${Array.from({ length: Math.min(board.bar.dark, 4) }, () => '<span class="mini-checker dark"></span>').join('')}</span><span class="bar-group light">${Array.from({ length: Math.min(board.bar.light, 4) }, () => '<span class="mini-checker light"></span>').join('')}</span></button><div class="rail-label right"><span class="rail-token light"></span>ВНЕ ИГРЫ <strong>${board.off.light}</strong></div></div>
+    <div class="board-middle"><div class="rail-half"><div class="rail-label">ВНЕ ИГРЫ <strong>${board.off.dark}</strong><span class="rail-token dark"></span></div>${boardDiceHtml('light')}</div><button class="bar-zone ${barPossible ? 'possible' : ''} ${selected === 'bar' ? 'selected' : ''}" data-bar aria-label="Бар: ${board.bar.light} светлых, ${board.bar.dark} тёмных"><span class="bar-title">БАР</span><span class="bar-group dark">${Array.from({ length: Math.min(board.bar.dark, 4) }, () => '<span class="mini-checker dark"></span>').join('')}</span><span class="bar-group light">${Array.from({ length: Math.min(board.bar.light, 4) }, () => '<span class="mini-checker light"></span>').join('')}</span></button><div class="rail-half"><div class="rail-label right"><span class="rail-token light"></span>ВНЕ ИГРЫ <strong>${board.off.light}</strong></div>${boardDiceHtml('dark')}</div></div>
     ${rowHtml([11,10,9,8,7,6,5,4,3,2,1,0], 'bottom')}
   </div></div>`
 }
@@ -138,18 +135,14 @@ function gameActions(): string {
   return moveButtons() || '<p class="action-hint">Выберите свою фишку на поле.</p>'
 }
 
-function diceHtml(): string {
+function boardDiceHtml(side: Player): string {
   const roll = game!.lastRoll
-  const values = rolling ? rollingDice : roll?.dice ?? game!.dice
-  const first = values[0] ?? 1
-  const second = values[1] ?? 1
-  const opening = roll?.kind === 'opening'
-  const actorName = roll ? playerName(roll.player) : 'Последний бросок'
-  const caption = rolling ? 'Кости катятся...' : opening
-    ? `${playerName('light')}: ${first}, ${playerName('dark')}: ${second}. Начинает ${actorName}.`
-    : roll ? `Бросок: ${actorName}. Выпало ${first} и ${second}${first === second ? ', дубль' : ''}.`
-      : `Выпало ${first} и ${second}.`
-  return `<section class="online-dice-stage ${rolling ? 'rolling' : ''}" aria-label="Бросок костей"><span class="eyebrow">${opening ? 'ПЕРВЫЙ БРОСОК' : 'ПОСЛЕДНИЙ БРОСОК'}</span><div class="online-dice-actor"><span class="player-symbol ${roll?.player ?? 'light'}"></span><strong>${opening ? 'Оба игрока' : escapeHtml(actorName)}</strong></div><div class="online-dice-pair" aria-hidden="true"><span class="online-die" data-online-die="0">${pipHtml(first)}</span><span class="online-die" data-online-die="1">${pipHtml(second)}</span></div>${opening ? `<div class="online-dice-names"><span>${escapeHtml(playerName('light'))}</span><span>${escapeHtml(playerName('dark'))}</span></div>` : ''}<p class="online-dice-caption" role="status" aria-live="polite">${escapeHtml(caption)}</p></section>`
+  const values = roll?.dice ?? game!.dice
+  if (values.length < 2) return ''
+  const indices = roll?.kind === 'opening' ? [side === 'light' ? 0 : 1] : (roll?.player ?? game!.turn) === side ? [0, 1] : []
+  if (!indices.length) return ''
+  const shown = indices.map(index => values[index])
+  return `<div class="board-dice ${side} ${rolling ? 'rolling' : ''}" role="status" aria-label="${escapeHtml(playerName(side))}: выпало ${shown.join(' и ')}"><span class="board-dice-caption">${sideName(side)} · ${shown.join(' + ')}</span><span class="board-dice-pair" aria-hidden="true">${indices.map(index => `<span class="board-die" data-board-die="${index}">${pipHtml(rolling ? rollingDice[index] : values[index])}</span>`).join('')}</span></div>`
 }
 
 function gameHtml(): string {
@@ -158,7 +151,7 @@ function gameHtml(): string {
   const events = [...current.events].reverse().map(entry => `<li class="activity-item ${entry.kind}"><time>${time(entry.at)}</time><span>${escapeHtml(entry.text)}</span></li>`).join('')
   const bearOff = options().some(move => move.to === 'off')
   return `<div class="online-game-layout"><section class="game-area"><div class="board-head"><div><span class="eyebrow">ОНЛАЙН-ПАРТИЯ</span><h1>${escapeHtml(playerName('light'))} / ${escapeHtml(playerName('dark'))}</h1></div><div class="board-head-meta">ВАШ ЦВЕТ: ${sideName(current.color).toUpperCase()}</div></div>${boardHtml()}<div class="board-footer"><button class="off-target ${bearOff ? 'possible' : ''}" data-off>◎ ВЫВЕСТИ ФИШКУ</button><span>Ходы подтверждает сервер</span></div></section>
-    <aside class="sidebar online-sidebar"><div class="sidebar-top"><span class="eyebrow">${status.toUpperCase()}</span><button class="icon-button" data-action="lobby" aria-label="В лобби">↖</button></div><div class="online-player-row"><span class="player-symbol light"></span>${escapeHtml(playerName('light'))}</div><div class="online-player-row"><span class="player-symbol dark"></span>${escapeHtml(playerName('dark'))}</div>${diceHtml()}<div class="turn-panel"><strong>${status}</strong><p>Куб ×${current.cubeValue}</p>${current.result ? `<p>Результат: ${current.result.points} очк.</p>` : ''}</div><div class="actions">${gameActions()}</div>${current.phase !== 'over' ? '<button class="online-resign" data-action="resign">Сдаться</button>' : ''}<div class="activity-panel"><div class="activity-head"><span class="eyebrow">ХОД ПАРТИИ</span><span>ЗАПИСИ · ${current.events.length}</span></div><ol class="activity-list">${events}</ol></div></aside></div>`
+    <aside class="sidebar online-sidebar"><div class="sidebar-top"><span class="eyebrow">${status.toUpperCase()}</span><button class="icon-button" data-action="lobby" aria-label="В лобби">↖</button></div><div class="online-player-row"><span class="player-symbol light"></span>${escapeHtml(playerName('light'))}</div><div class="online-player-row"><span class="player-symbol dark"></span>${escapeHtml(playerName('dark'))}</div><div class="turn-panel"><strong>${status}</strong><p>Куб ×${current.cubeValue}</p>${current.result ? `<p>Результат: ${current.result.points} очк.</p>` : ''}</div><div class="actions">${gameActions()}</div>${current.phase !== 'over' ? '<button class="online-resign" data-action="resign">Сдаться</button>' : ''}<div class="activity-panel"><div class="activity-head"><span class="eyebrow">ХОД ПАРТИИ</span><span>ЗАПИСИ · ${current.events.length}</span></div><ol class="activity-list">${events}</ol></div></aside></div>`
 }
 
 function lobbyHtml(): string {

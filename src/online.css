@@ -33,21 +33,6 @@
 .online-sidebar{min-height:0}
 .online-player-row{display:flex;align-items:center;gap:10px;border:1px solid #35474a;border-radius:7px;padding:11px;margin-top:10px;color:#e2ecdd;font-size:13px;overflow-wrap:anywhere}
 .online-player-row .player-symbol{width:23px;height:23px}
-.online-dice-stage{margin-top:22px;padding:17px 15px 14px;border:1px solid #54756a;border-radius:10px;background:linear-gradient(145deg,#29443f,#1c3432);box-shadow:inset 0 1px #ffffff1c,0 10px 24px #07141638}
-.online-dice-stage .eyebrow{color:#bfd7b5;font-size:9px}
-.online-dice-actor{display:flex;align-items:center;gap:9px;margin-top:11px;color:#eff1e5;font-size:13px}
-.online-dice-actor .player-symbol{width:23px;height:23px}
-.online-dice-pair{display:flex;justify-content:center;gap:16px;margin:18px 0 11px}
-.online-die{width:66px;height:66px;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,1fr);place-items:center;padding:11px;border-radius:10px;border:1px solid #fff;background:#efeee3;box-shadow:0 7px 0 #b6b9a8,0 11px 15px #0a1b1a88,inset 0 0 0 2px #ffffff66}
-.online-pip{width:8px;height:8px;border-radius:50%;opacity:0}
-.online-pip.active{opacity:1;background:#344d48;box-shadow:inset 0 1px 2px #111a1a99}
-.online-dice-names{display:grid;grid-template-columns:1fr 1fr;gap:16px;text-align:center;color:#a9c2b4;font-size:10px;overflow-wrap:anywhere}
-.online-dice-caption{margin:14px 0 0;text-align:center;color:#e0e9d9;font-size:11px;line-height:1.45;min-height:32px}
-.online-dice-stage.rolling{border-color:#b5d7a7;box-shadow:0 0 24px #9bbd8b3d,inset 0 1px #ffffff30}
-.online-dice-stage.rolling .online-die:first-child{animation:online-die-roll-left 1.05s ease-out both}
-.online-dice-stage.rolling .online-die:last-child{animation:online-die-roll-right 1.05s ease-out both}
-@keyframes online-die-roll-left{0%{transform:translate(-10px,-15px) rotate(-28deg) scale(.84)}35%{transform:translate(7px,5px) rotate(18deg) scale(1.08)}65%{transform:translate(-3px,-4px) rotate(-10deg)}100%{transform:none}}
-@keyframes online-die-roll-right{0%{transform:translate(12px,-18px) rotate(31deg) scale(.82)}38%{transform:translate(-7px,7px) rotate(-21deg) scale(1.07)}70%{transform:translate(4px,-3px) rotate(9deg)}100%{transform:none}}
 .online-sidebar .turn-panel{min-height:0;margin-top:18px;padding-top:18px;padding-bottom:18px}
 .online-sidebar .actions{margin-top:0}
 .online-sidebar .option-list{margin:0}
@@ -58,4 +43,3 @@
 @media(max-width:1130px){.online-shell{padding:0 30px}.online-game-layout{grid-template-columns:minmax(0,1fr) 280px;gap:25px}}
 @media(max-width:880px){.online-game-layout{grid-template-columns:1fr}.online-sidebar{display:block}.online-sections{grid-template-columns:1fr}.online-card.wide{grid-column:auto}}
 @media(max-width:600px){.online-shell{padding:0 14px}.online-main{padding:23px 0 45px}.online-card{padding:20px}.login-wrap{min-height:calc(100vh - 72px)}.login-card{padding:24px}.online-row{align-items:flex-start;flex-direction:column;padding:13px 0;gap:9px}.online-row .secondary-button{min-height:34px}.online-sidebar{padding:20px}.online-game-layout .board-head h1{font-size:24px}.online-game-layout .board-footer>span{font-size:9px}.site-header .header-right{gap:10px}.site-header .header-right .text-button{font-size:11px}}
-@media(prefers-reduced-motion:reduce){.online-dice-stage.rolling .online-die{animation:none}}

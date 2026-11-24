@@ -72,6 +72,7 @@ test('admin tokens, online invitation and server-validated moves survive restart
     assert.equal(game.lastRoll.kind, 'opening')
     assert.equal(game.lastRoll.player, game.turn)
     assert.deepEqual(game.lastRoll.dice, game.dice)
+    assert.equal(game.lastTurn, null)
     const activeCookie = game.turn === 'light' ? aliceCookie : bobCookie
     const waitingCookie = game.turn === 'light' ? bobCookie : aliceCookie
     const waitingMove = await call(`/api/games/${gameId}/move`, waitingCookie, { ...game.legalMoves[0], version: game.version })
@@ -80,7 +81,11 @@ test('admin tokens, online invitation and server-validated moves survive restart
     const move = activeGame.legalMoves[0]
     const moved = await call(`/api/games/${gameId}/move`, activeCookie, { ...move, version: activeGame.version })
     assert.equal(moved.status, 200)
-    assert.equal((await moved.json()).fileLogged, true)
+    const movedBody = await moved.json()
+    assert.equal(movedBody.fileLogged, true)
+    assert.equal(movedBody.game.lastTurn.player, activeGame.turn)
+    assert.equal(movedBody.game.lastTurn.rollId, activeGame.lastRoll.id)
+    assert.deepEqual(movedBody.game.lastTurn.moves, [move])
     assert.equal((await call(`/api/games/${gameId}/move`, activeCookie, { ...move, version: activeGame.version })).status, 409)
     const reopened = await createStore()
     assert.ok(reopened.read().games.some(saved => saved.id === gameId && saved.version > game.version))

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyMove, canBearOff, initialBoard, legalSequences, movesForDie, resultKind, resultPoints, sameMove } from './engine.ts'
+import { applyMove, canBearOff, initialBoard, legalSequences, movesForDie, pipCount, resultKind, resultPoints, sameMove } from './engine.ts'
 import type { Board, Move } from './engine.ts'
 
 const emptyBoard = (): Board => ({ points: Array(24).fill(0), bar: { light: 0, dark: 0 }, off: { light: 0, dark: 0 } })
@@ -115,4 +115,20 @@ test('immediate winning bear-off is allowed even when a two-step play exists', (
   const darkPlays = legalSequences(darkBoard, 'dark', [2, 5])
   assert.ok(hasSequence(darkPlays, [{ from: 21, to: 'off', die: 5 }]))
   assert.ok(hasSequence(darkPlays, [{ from: 21, to: 23, die: 2 }, { from: 23, to: 'off', die: 5 }]))
+})
+
+test('pipCount matches standard initial count, bar penalty and borne-off checkers', () => {
+  const start = initialBoard()
+  assert.equal(pipCount(start, 'light'), 167)
+  assert.equal(pipCount(start, 'dark'), 167)
+
+  const board = emptyBoard()
+  board.bar.light = 1
+  board.points[5] = 2
+  board.off.light = 12
+  board.bar.dark = 2
+  board.points[18] = -1
+  board.off.dark = 12
+  assert.equal(pipCount(board, 'light'), 25 + 2 * 6)
+  assert.equal(pipCount(board, 'dark'), 50 + 6)
 })

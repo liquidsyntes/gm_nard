@@ -88,6 +88,7 @@ function visibleGame(game, userId) {
     phase: game.phase,
     dice: game.dice,
     lastRoll: game.lastRoll ?? null,
+    lastTurn: game.lastTurn ?? null,
     remaining: game.remaining,
     cubeValue: game.cubeValue,
     cubeOwner: game.cubeOwner,
@@ -113,6 +114,7 @@ function startGame(from, to) {
   const game = {
     id: newId(), players: { light: from, dark: to }, board: initialBoard(), turn, phase: 'move',
     dice: [lightRoll, darkRoll], lastRoll: { id: newId(), kind: 'opening', player: turn, dice: [lightRoll, darkRoll], at: now() },
+    lastTurn: null,
     remaining: [lightRoll, darkRoll], cubeValue: 1,
     cubeOwner: null, offerer: null, result: null, events: [], version: 0, createdAt: now(), updatedAt: now(),
   }
@@ -334,7 +336,7 @@ export async function createMultiplayerApi() {
             game.remaining = first === second ? [first, first, first, first] : [first, second]
             add('roll', `${color === 'light' ? 'Светлые' : 'Тёмные'}: бросок ${first} и ${second}${first === second ? ', дубль' : ''}.`)
             if (legalSequences(game.board, color, game.remaining).length) game.phase = 'move'
-            else { game.phase = 'roll'; game.turn = opponent(color); game.remaining = []; add('system', 'Нет допустимых ходов, очередь передана сопернику.') }
+            else { game.phase = 'roll'; game.turn = opponent(color); game.remaining = []; game.lastTurn = null; add('system', 'Нет допустимых ходов, очередь передана сопернику.') }
           } else if (action === 'move') {
             if (game.phase !== 'move' || game.turn !== color) fail(409, 'Сейчас не ваш ход')
             const move = { from: body.from, to: body.to, die: body.die }
@@ -343,6 +345,9 @@ export async function createMultiplayerApi() {
             const hit = move.to !== 'off' && game.board.points[move.to] === (color === 'light' ? -1 : 1)
             game.board = applyMove(game.board, color, move)
             game.remaining.splice(game.remaining.indexOf(move.die), 1)
+            const rollId = game.lastRoll?.id ?? null
+            if (game.lastTurn && game.lastTurn.player === color && game.lastTurn.rollId === rollId) game.lastTurn.moves.push(move)
+            else game.lastTurn = { player: color, rollId, moves: [move] }
             add('move', `${color === 'light' ? 'Светлые' : 'Тёмные'}: ${move.from === 'bar' ? 'бар' : move.from + 1} → ${move.to === 'off' ? 'вывод' : move.to + 1}, кость ${move.die}${hit ? ', сбита фишка' : ''}.`)
             if (game.board.off[color] === 15) {
               const kind = resultKind(game.board, color)

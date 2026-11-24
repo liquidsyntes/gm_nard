@@ -145,3 +145,12 @@ export function resultKind(board: Board, winner: Player): ResultKind {
 export function resultPoints(kind: ResultKind, cubeValue: number): number {
   return cubeValue * (kind === 'single' ? 1 : kind === 'gammon' ? 2 : 3)
 }
+
+export function pipCount(board: Board, player: Player): number {
+  let total = board.bar[player] * 25
+  for (let point = 0; point < 24; point++) {
+    const count = Math.max(0, board.points[point] * sign(player))
+    total += count * (player === 'light' ? point + 1 : 24 - point)
+  }
+  return total
+}

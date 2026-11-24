@@ -1,4 +1,4 @@
-import { applyMove, legalSequences, opponent } from './engine.ts'
+import { applyMove, legalSequences, opponent, pipCount } from './engine.ts'
 import type { Board, Move, Player } from './engine.ts'
 
 const diceRolls = Array.from({ length: 6 }, (_, a) =>
@@ -10,14 +10,6 @@ const diceRolls = Array.from({ length: 6 }, (_, a) =>
 
 function ownerCount(board: Board, player: Player, point: number): number {
   return Math.max(0, board.points[point] * (player === 'light' ? 1 : -1))
-}
-
-function pipCount(board: Board, player: Player): number {
-  let total = board.bar[player] * 25
-  for (let point = 0; point < 24; point++) {
-    total += ownerCount(board, player, point) * (player === 'light' ? point + 1 : 24 - point)
-  }
-  return total
 }
 
 function sideStructure(board: Board, player: Player): number {

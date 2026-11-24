@@ -32,7 +32,10 @@
 .online-game-layout{display:grid;grid-template-columns:minmax(0,1fr) 310px;gap:54px;align-items:start}
 .online-sidebar{min-height:0}
 .online-player-row{display:flex;align-items:center;gap:10px;border:1px solid #35474a;border-radius:7px;padding:11px;margin-top:10px;color:#e2ecdd;font-size:13px;overflow-wrap:anywhere}
+.online-player-row.active{border-color:#9fb79b;background:#263c39}
 .online-player-row .player-symbol{width:23px;height:23px}
+.online-player-name{min-width:0;overflow-wrap:anywhere}
+.online-player-pips{margin-left:auto;flex:none;color:#9eb3a7;font-size:11px;font-weight:700;white-space:nowrap}
 .online-sidebar .turn-panel{min-height:0;margin-top:18px;padding-top:18px;padding-bottom:18px}
 .online-sidebar .actions{margin-top:0}
 .online-sidebar .option-list{margin:0}

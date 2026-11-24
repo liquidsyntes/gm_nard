@@ -10,7 +10,7 @@
     "admin:create": "node server/admin-cli.mjs create",
     "admin:rotate": "node server/admin-cli.mjs rotate",
     "build": "tsc --noEmit && npm run engine:build && vite build",
-    "test": "npm run engine:build && node --experimental-strip-types --test src/engine.test.ts src/bot.test.ts server/log-api.test.mjs server/multiplayer.test.mjs"
+    "test": "npm run engine:build && node --experimental-strip-types --test src/engine.test.ts src/bot.test.ts src/board-dice.test.ts server/log-api.test.mjs server/multiplayer.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.18.6",

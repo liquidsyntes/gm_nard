@@ -75,6 +75,7 @@ function record(text: string, kind: LogKind = 'system'): void {
     if (!response.ok) throw new Error(`File log HTTP ${response.status}`)
   }).then(() => {
     pendingFileWrites--
+    fileLogFailed = false
     updateFileStatus()
   }, () => {
     pendingFileWrites--
@@ -171,7 +172,7 @@ function logHtml(): string {
 }
 
 function render(): void {
-  const barOption = moveOptions().some(move => move.from === 'bar')
+  const barOption = canSelect('bar')
   const offOption = moveOptions().some(move => move.to === 'off')
   const phaseLabel = phase === 'opening' ? 'Подготовка' : phase === 'offer' ? 'Решение за соперником' : phase === 'over' ? 'Партия окончена' : phase === 'roll' ? 'Ваш бросок' : firstMoves(sequences).length ? 'Ваш ход' : 'Ход завершён'
   app.innerHTML = `<div class="shell">
@@ -316,7 +317,7 @@ function activateAction(action: string): void {
       remaining = snapshot.remaining
       logEntries = logEntries.filter(entry => entry.id <= snapshot.logId)
       record(`${actor(player)}: отмена хода ${moveText(snapshot.move)}.`)
-      selected = null
+      selected = board.bar[player] > 0 ? 'bar' : null
       notice = 'Последний ход отменён. Выберите фишку.'
       render()
       break

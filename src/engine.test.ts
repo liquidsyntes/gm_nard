@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyMove, canBearOff, initialBoard, legalSequences, movesForDie, resultKind, resultPoints } from './engine.ts'
-import type { Board } from './engine.ts'
+import { applyMove, canBearOff, initialBoard, legalSequences, movesForDie, resultKind, resultPoints, sameMove } from './engine.ts'
+import type { Board, Move } from './engine.ts'
 
 const emptyBoard = (): Board => ({ points: Array(24).fill(0), bar: { light: 0, dark: 0 }, off: { light: 0, dark: 0 } })
 
@@ -96,4 +96,23 @@ test('single, gammon and backgammon score against the cube', () => {
   board.bar.dark = 1
   assert.equal(resultKind(board, 'light'), 'backgammon')
   assert.equal(resultPoints('backgammon', 4), 12)
+})
+
+test('immediate winning bear-off is allowed even when a two-step play exists', () => {
+  const hasSequence = (plays: Move[][], expected: Move[]) =>
+    plays.some(play => play.length === expected.length && play.every((move, index) => sameMove(move, expected[index])))
+
+  const lightBoard = emptyBoard()
+  lightBoard.points[2] = 1
+  lightBoard.off.light = 14
+  const lightPlays = legalSequences(lightBoard, 'light', [2, 5])
+  assert.ok(hasSequence(lightPlays, [{ from: 2, to: 'off', die: 5 }]))
+  assert.ok(hasSequence(lightPlays, [{ from: 2, to: 0, die: 2 }, { from: 0, to: 'off', die: 5 }]))
+
+  const darkBoard = emptyBoard()
+  darkBoard.points[21] = -1
+  darkBoard.off.dark = 14
+  const darkPlays = legalSequences(darkBoard, 'dark', [2, 5])
+  assert.ok(hasSequence(darkPlays, [{ from: 21, to: 'off', die: 5 }]))
+  assert.ok(hasSequence(darkPlays, [{ from: 21, to: 23, die: 2 }, { from: 23, to: 'off', die: 5 }]))
 })

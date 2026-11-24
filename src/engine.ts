@@ -99,11 +99,11 @@ export function sameMove(a: Move, b: Move): boolean {
   return a.from === b.from && a.to === b.to && a.die === b.die
 }
 
-// Generate complete plays, then keep only those that use the maximum possible dice.
+// Generate complete plays, then keep those that use the maximum possible dice or win immediately.
 // This also enforces the higher-die rule when exactly one of two dice can be played.
 export function legalSequences(board: Board, player: Player, dice: number[]): Move[][] {
   if (dice.length === 0) return []
-  const plays: Move[][] = []
+  const plays: { moves: Move[]; won: boolean }[] = []
   const visit = (position: Board, remaining: number[], prefix: Move[]) => {
     let extended = false
     for (const die of new Set(remaining)) {
@@ -114,12 +114,12 @@ export function legalSequences(board: Board, player: Player, dice: number[]): Mo
         visit(applyMove(position, player, move), rest, [...prefix, move])
       }
     }
-    if (!extended) plays.push(prefix)
+    if (!extended) plays.push({ moves: prefix, won: position.off[player] === 15 })
   }
   visit(board, dice, [])
-  const longest = Math.max(...plays.map(play => play.length))
+  const longest = Math.max(...plays.map(play => play.moves.length))
   if (longest === 0) return []
-  let valid = plays.filter(play => play.length === longest)
+  let valid = plays.filter(play => play.moves.length === longest || play.won).map(play => play.moves)
   if (dice.length === 2 && dice[0] !== dice[1] && longest === 1 && valid.some(play => play[0].die === Math.max(...dice))) {
     valid = valid.filter(play => play[0].die === Math.max(...dice))
   }

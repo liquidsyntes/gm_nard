@@ -56,7 +56,8 @@ function stopRollAnimation(): void {
   rolling = false
 }
 
-function setGame(next: Game): void {
+function setGame(next: Game, animateInitial = false): void {
+  const sameGame = game?.id === next.id
   game = next
   const roll = next.lastRoll
   if (!roll) return
@@ -64,7 +65,7 @@ function setGame(next: Game): void {
   if (key === seenRollKey) return
   seenRollKey = key
   stopRollAnimation()
-  if (next.phase === 'over' || Date.now() - Date.parse(roll.at) > 10_000 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+  if (next.phase === 'over' || (!sameGame && !animateInitial) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
   rolling = true
   rollingDice = [randomVisualDie(), randomVisualDie()]
   rollTickTimer = window.setInterval(() => {
@@ -113,7 +114,7 @@ function boardHtml(): string {
   const barPossible = canChoose('bar')
   return `<div class="board-frame"><div class="board-surface">
     ${rowHtml([12,13,14,15,16,17,18,19,20,21,22,23], 'top')}
-    <div class="board-middle"><div class="rail-half"><div class="rail-label">ВНЕ ИГРЫ <strong>${board.off.dark}</strong><span class="rail-token dark"></span></div>${boardDiceHtml('light')}</div><button class="bar-zone ${barPossible ? 'possible' : ''} ${selected === 'bar' ? 'selected' : ''}" data-bar aria-label="Бар: ${board.bar.light} светлых, ${board.bar.dark} тёмных"><span class="bar-title">БАР</span><span class="bar-group dark">${Array.from({ length: Math.min(board.bar.dark, 4) }, () => '<span class="mini-checker dark"></span>').join('')}</span><span class="bar-group light">${Array.from({ length: Math.min(board.bar.light, 4) }, () => '<span class="mini-checker light"></span>').join('')}</span></button><div class="rail-half"><div class="rail-label right"><span class="rail-token light"></span>ВНЕ ИГРЫ <strong>${board.off.light}</strong></div>${boardDiceHtml('dark')}</div></div>
+    <div class="board-middle"><div class="rail-half"><div class="rail-label">ВНЕ ИГРЫ <strong>${board.off.dark}</strong><span class="rail-token dark"></span></div>${boardDiceHtml('light')}</div><button class="bar-zone ${barPossible ? 'possible' : ''} ${selected === 'bar' ? 'selected' : ''}" data-bar aria-label="Бар: ${board.bar.light} светлых, ${board.bar.dark} тёмных"><span class="bar-title">БАР</span><span class="bar-group dark">${Array.from({ length: Math.min(board.bar.dark, 4) }, () => '<span class="mini-checker dark"></span>').join('')}${board.bar.dark > 4 ? `<b>+${board.bar.dark - 4}</b>` : ''}</span><span class="bar-group light">${Array.from({ length: Math.min(board.bar.light, 4) }, () => '<span class="mini-checker light"></span>').join('')}${board.bar.light > 4 ? `<b>+${board.bar.light - 4}</b>` : ''}</span></button><div class="rail-half"><div class="rail-label right"><span class="rail-token light"></span>ВНЕ ИГРЫ <strong>${board.off.light}</strong></div>${boardDiceHtml('dark')}</div></div>
     ${rowHtml([11,10,9,8,7,6,5,4,3,2,1,0], 'bottom')}
   </div></div>`
 }
@@ -181,16 +182,17 @@ async function refresh(): Promise<void> {
   if (refreshPending) { refreshAgain = true; return }
   refreshPending = true
   try {
+    const hadLobby = lobby !== null
+    const hadActiveGame = lobby?.games.some(item => item.phase !== 'over') ?? false
     const nextLobby = await api<Lobby>('/api/lobby')
     lobby = nextLobby
     if (screen === 'lobby') {
       const active = nextLobby.games.find(item => item.phase !== 'over')
       if (active) {
         const result = await api<{ game: Game; users: User[] }>(`/api/games/${active.id}`)
-        screen = 'game'; setGame(result.game); gameUsers = result.users
+        screen = 'game'; setGame(result.game, hadLobby && !hadActiveGame); gameUsers = result.users
       }
-    }
-    if (screen === 'game' && game) {
+    } else if (screen === 'game' && game) {
       const result = await api<{ game: Game; users: User[] }>(`/api/games/${game.id}`)
       setGame(result.game)
       gameUsers = result.users
@@ -232,9 +234,9 @@ function connectLive(): void {
   live.addEventListener('refresh', () => { void refresh() })
 }
 
-async function openGame(id: string): Promise<void> {
+async function openGame(id: string, animateInitial = false): Promise<void> {
   const result = await api<{ game: Game; users: User[] }>(`/api/games/${id}`)
-  setGame(result.game)
+  setGame(result.game, animateInitial)
   gameUsers = result.users
   selected = null
   screen = 'game'
@@ -292,7 +294,7 @@ app.addEventListener('click', event => {
   const invite = target.closest<HTMLElement>('[data-invite]')?.dataset.invite
   if (invite) { void api('/api/invites', 'POST', { to: invite }).then(async () => { notice = 'Приглашение отправлено.'; await refresh() }).catch(error => { notice = error.message; render() }); return }
   const accept = target.closest<HTMLElement>('[data-accept]')?.dataset.accept
-  if (accept) { void api<{ gameId: string; fileLogged: boolean }>(`/api/invites/${accept}/accept`, 'POST', {}).then(async result => { await openGame(result.gameId); if (!result.fileLogged) { notice = 'Партия создана, но файловый журнал недоступен.'; render() } }).catch(error => { notice = error.message; render() }); return }
+  if (accept) { void api<{ gameId: string; fileLogged: boolean }>(`/api/invites/${accept}/accept`, 'POST', {}).then(async result => { await openGame(result.gameId, true); if (!result.fileLogged) { notice = 'Партия создана, но файловый журнал недоступен.'; render() } }).catch(error => { notice = error.message; render() }); return }
   const decline = target.closest<HTMLElement>('[data-decline]')?.dataset.decline
   if (decline) { void api(`/api/invites/${decline}/decline`, 'POST', {}).then(() => refresh()).catch(error => { notice = error.message; render() }); return }
   const gameId = target.closest<HTMLElement>('[data-game]')?.dataset.game
@@ -306,12 +308,13 @@ app.addEventListener('click', event => {
   if (moveIndex !== undefined) { const move = options()[Number(moveIndex)]; if (move) void gameAction('move', move); return }
   if (target.closest('[data-bar]') && canChoose('bar')) { selected = 'bar'; render(); return }
   const off = target.closest('[data-off]')
-  if (off) { const moves = options().filter(move => move.to === 'off'); if (moves.length === 1) void gameAction('move', moves[0]); return }
+  if (off) { const moves = options().filter(move => move.to === 'off'); if (moves.length === 1) void gameAction('move', moves[0]); else if (moves.length > 1) { notice = 'Выберите нужную кость в списке доступных ходов.'; render() } return }
   const point = target.closest<HTMLElement>('[data-point]')?.dataset.point
   if (point !== undefined) {
     const index = Number(point)
     const moves = options().filter(move => move.to === index)
     if (moves.length === 1) { void gameAction('move', moves[0]); return }
+    if (moves.length > 1) { notice = 'Выберите нужную кость в списке доступных ходов.'; render(); return }
     if (canChoose(index)) { selected = index; render() }
   }
 })

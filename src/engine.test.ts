@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyMove, canBearOff, initialBoard, legalSequences, movesForDie, pipCount, resultKind, resultPoints, sameMove } from './engine.ts'
+import { applyMove, canBearOff, canOfferDouble, initialBoard, isMatchTarget, legalSequences, movesForDie, nextCrawfordState, pipCount, resultKind, resultPoints, sameMove } from './engine.ts'
 import type { Board, Move } from './engine.ts'
 
 const emptyBoard = (): Board => ({ points: Array(24).fill(0), bar: { light: 0, dark: 0 }, off: { light: 0, dark: 0 } })
@@ -131,4 +131,26 @@ test('pipCount matches standard initial count, bar penalty and borne-off checker
   board.off.dark = 12
   assert.equal(pipCount(board, 'light'), 25 + 2 * 6)
   assert.equal(pipCount(board, 'dark'), 50 + 6)
+})
+
+test('match targets, Crawford rule transitions and dead cube checks work properly', () => {
+  assert.equal(isMatchTarget(5), true)
+  assert.equal(isMatchTarget(12), true)
+  assert.equal(isMatchTarget(15), true)
+  assert.equal(isMatchTarget(3), false)
+  assert.equal(isMatchTarget(null), false)
+
+  assert.equal(nextCrawfordState('none', null, { light: 4, dark: 0 }), 'none')
+  assert.equal(nextCrawfordState('none', 5, { light: 3, dark: 2 }), 'none')
+  assert.equal(nextCrawfordState('none', 5, { light: 4, dark: 2 }), 'active')
+  assert.equal(nextCrawfordState('active', 5, { light: 4, dark: 3 }), 'used')
+  assert.equal(nextCrawfordState('used', 5, { light: 4, dark: 4 }), 'used')
+
+  assert.equal(canOfferDouble(null, 'light', 1, 5, { light: 4, dark: 2 }, 'active'), false)
+  assert.equal(canOfferDouble(null, 'dark', 1, 5, { light: 4, dark: 2 }, 'active'), false)
+  assert.equal(canOfferDouble(null, 'dark', 1, 5, { light: 4, dark: 2 }, 'used'), true)
+  assert.equal(canOfferDouble(null, 'light', 1, 5, { light: 4, dark: 2 }, 'used'), false)
+  assert.equal(canOfferDouble(null, 'light', 2, 5, { light: 3, dark: 2 }, 'none'), false)
+  assert.equal(canOfferDouble('dark', 'light', 1, 5, { light: 1, dark: 1 }, 'none'), false)
+  assert.equal(canOfferDouble(null, 'light', 1, null, { light: 10, dark: 10 }, 'none'), true)
 })

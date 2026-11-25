@@ -16,6 +16,38 @@ export interface Move {
 }
 
 export type ResultKind = 'single' | 'gammon' | 'backgammon'
+export const MATCH_TARGETS = [5, 12, 15] as const
+export type MatchTarget = (typeof MATCH_TARGETS)[number]
+export type CrawfordState = 'none' | 'active' | 'used'
+
+export function isMatchTarget(value: unknown): value is MatchTarget {
+  return typeof value === 'number' && (MATCH_TARGETS as readonly number[]).includes(value)
+}
+
+export function canOfferDouble(
+  cubeOwner: Player | null,
+  player: Player,
+  cubeValue: number,
+  targetPoints: number | null,
+  score: Record<Player, number>,
+  crawford: CrawfordState,
+): boolean {
+  if (crawford === 'active') return false
+  if (cubeOwner !== null && cubeOwner !== player) return false
+  if (targetPoints !== null && score[player] + cubeValue >= targetPoints) return false
+  return true
+}
+
+export function nextCrawfordState(
+  crawford: CrawfordState,
+  targetPoints: number | null,
+  score: Record<Player, number>,
+): CrawfordState {
+  if (targetPoints === null || targetPoints < 2) return 'none'
+  if (crawford === 'active') return 'used'
+  if (crawford === 'none' && (score.light === targetPoints - 1 || score.dark === targetPoints - 1)) return 'active'
+  return crawford
+}
 
 export const opponent = (player: Player): Player => player === 'light' ? 'dark' : 'light'
 const direction = (player: Player) => player === 'light' ? -1 : 1

@@ -6,6 +6,14 @@
 .online-sections{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
 .online-card{background:#19272b;border:1px solid #304146;border-radius:13px;padding:27px;min-width:0}
 .online-card.wide{grid-column:1/-1}
+.stats-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:14px}
+.stats-grid>div{padding:12px 14px;border:1px solid #2d3f44;border-radius:8px;background:#152226}
+.stats-grid strong{display:block;font:700 22px Manrope,sans-serif;color:#edf0e8;line-height:1.1}
+.stats-grid small{display:block;margin-top:5px;color:#8fa29b;font-size:11px}
+.card-head-row{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:21px}
+.card-head-row h2{margin-bottom:0}
+.lobby-format{display:grid;gap:5px;color:#8fa29b;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.lobby-format select{min-height:34px;padding:0 10px;border:1px solid #425852;border-radius:6px;background:#253b39;color:#e7eee0;font:700 11px 'DM Sans',sans-serif;cursor:pointer}
 .online-card h2{font:600 25px Manrope,sans-serif;letter-spacing:-.04em;margin:8px 0 21px}
 .online-card h1{font:600 clamp(32px,4vw,48px) Manrope,sans-serif;letter-spacing:-.055em;margin:9px 0 13px}
 .online-card p{color:#a9b9b1;font-size:13px;line-height:1.6}
@@ -36,13 +44,16 @@
 .online-player-row .player-symbol{width:23px;height:23px}
 .online-player-name{min-width:0;overflow-wrap:anywhere}
 .online-player-pips{margin-left:auto;flex:none;color:#9eb3a7;font-size:11px;font-weight:700;white-space:nowrap}
+.online-player-score{flex:none;padding:2px 7px;border:1px solid #445a55;border-radius:5px;background:#203434;color:#edf0e8;font:700 11px Manrope,sans-serif;white-space:nowrap}
 .online-sidebar .turn-panel{min-height:0;margin-top:18px;padding-top:18px;padding-bottom:18px}
+.online-sidebar .crawford-badge{margin-top:9px}
 .online-sidebar .actions{margin-top:0}
 .online-sidebar .option-list{margin:0}
 .online-sidebar .option-list button{min-height:39px}
+.online-resign-row{display:flex;gap:16px;flex-wrap:wrap}
 .online-resign{display:block;margin-top:15px;border:0;background:transparent;color:#a18d84;font-size:11px;padding:7px 0;text-align:left}
 .online-resign:hover{color:#e0aa93}
 .online-sidebar .activity-list{max-height:265px}
 @media(max-width:1130px){.online-shell{padding:0 30px}.online-game-layout{grid-template-columns:minmax(0,1fr) 280px;gap:25px}}
 @media(max-width:880px){.online-game-layout{grid-template-columns:1fr}.online-sidebar{display:block}.online-sections{grid-template-columns:1fr}.online-card.wide{grid-column:auto}}
-@media(max-width:600px){.online-shell{padding:0 14px}.online-main{padding:23px 0 45px}.online-card{padding:20px}.login-wrap{min-height:calc(100vh - 72px)}.login-card{padding:24px}.online-row{align-items:flex-start;flex-direction:column;padding:13px 0;gap:9px}.online-row .secondary-button{min-height:34px}.online-sidebar{padding:20px}.online-game-layout .board-head h1{font-size:24px}.online-game-layout .board-footer>span{font-size:9px}.site-header .header-right{gap:10px}.site-header .header-right .text-button{font-size:11px}}
+@media(max-width:600px){.online-shell{padding:0 14px}.online-main{padding:23px 0 45px}.online-card{padding:20px}.stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.login-wrap{min-height:calc(100vh - 72px)}.login-card{padding:24px}.online-row{align-items:flex-start;flex-direction:column;padding:13px 0;gap:9px}.online-row .secondary-button{min-height:34px}.online-sidebar{padding:20px}.online-game-layout .board-head h1{font-size:24px}.online-game-layout .board-footer>span{font-size:9px}.site-header .header-right{gap:10px}.site-header .header-right .text-button{font-size:11px}}

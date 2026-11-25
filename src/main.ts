@@ -1,20 +1,28 @@
 import './style.css'
 import './board-dice.css'
-import { applyMove, firstMoves, initialBoard, legalSequences, opponent, pipCount, resultKind, resultPoints, sameMove } from './engine.ts'
+import {
+  applyMove, canOfferDouble, firstMoves, initialBoard, isMatchTarget, legalSequences,
+  MATCH_TARGETS, nextCrawfordState, opponent, pipCount, resultKind, resultPoints, sameMove,
+} from './engine.ts'
 import { chooseBotPlay, shouldAcceptDouble, shouldOfferDouble } from './bot.ts'
 import { createDiceAnimator } from './board-dice.ts'
 import type { BoardRoll } from './board-dice.ts'
 import { bindBoardDragAndDrop, renderBoard } from './board-view.ts'
 import { isSoundMuted, playSound, toggleSoundMuted } from './sound.ts'
-import type { Board, Destination, Move, Origin, Player } from './engine.ts'
+import type { Board, CrawfordState, Destination, MatchTarget, Move, Origin, Player } from './engine.ts'
 
 type Phase = 'opening' | 'roll' | 'move' | 'offer' | 'over'
 type Mode = 'local' | 'bot' | 'demo'
 type LogKind = 'system' | 'roll' | 'move' | 'cube' | 'result'
 interface LogEntry { id: number; time: string; text: string; kind: LogKind }
-interface Snapshot { board: Board; sequences: Move[][]; remaining: number[]; logId: number; move: Move; lastTurnMoves: Move[] }
+interface Snapshot { board: Board; remaining: number[]; logId: number; move: Move; lastTurnMoves: Move[] }
+
+const STORAGE_KEY = 'nard_local_state_v1'
 
 let mode: Mode = 'local'
+let targetPoints: MatchTarget | null = null
+let crawford: CrawfordState = 'none'
+let matchWinner: Player | null = null
 let paused = false
 let flipped = false
 let board = initialBoard()
@@ -61,6 +69,96 @@ const isAutomated = () => mode === 'demo' && (phase === 'opening' || phase === '
 const actor = (side: Player) => mode === 'bot' && side === 'light' ? 'Вы' : isBot(side) ? `Бот (${name(side).toLowerCase()})` : name(side)
 const fileStatus = () => fileLogFailed ? 'error' : pendingFileWrites > 0 ? 'saving' : 'saved'
 const fileStatusText = () => fileLogFailed ? 'ФАЙЛ НЕДОСТУПЕН' : pendingFileWrites > 0 ? 'ЗАПИСЬ В ФАЙЛ...' : 'ФАЙЛ СОХРАНЁН'
+const canDouble = () => phase === 'roll' && canOfferDouble(cubeOwner, player, cubeValue, targetPoints, score, crawford)
+
+function saveLocalState(): void {
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      version: 1,
+      mode,
+      targetPoints,
+      crawford,
+      matchWinner,
+      paused,
+      flipped,
+      board,
+      phase,
+      player,
+      lastRoll,
+      lastTurnMoves,
+      remaining,
+      selected,
+      history,
+      score,
+      cubeValue,
+      cubeOwner,
+      offerer,
+      notice,
+      winner,
+      gameNumber,
+      sessionId,
+      nextLogId,
+      logEntries,
+    }))
+  } catch {}
+}
+
+function validBoard(value: unknown): value is Board {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<Board>
+  return Array.isArray(candidate.points) && candidate.points.length === 24 && candidate.points.every(n => Number.isInteger(n))
+    && !!candidate.bar && Number.isInteger(candidate.bar.light) && Number.isInteger(candidate.bar.dark)
+    && !!candidate.off && Number.isInteger(candidate.off.light) && Number.isInteger(candidate.off.dark)
+}
+
+function loadLocalState(): boolean {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY)
+    if (!raw) return false
+    const data = JSON.parse(raw)
+    if (!data || data.version !== 1) return false
+    if (!['local', 'bot', 'demo'].includes(data.mode)) return false
+    if (data.targetPoints !== null && !isMatchTarget(data.targetPoints)) return false
+    if (!['none', 'active', 'used'].includes(data.crawford)) return false
+    if (!['opening', 'roll', 'move', 'offer', 'over'].includes(data.phase)) return false
+    if (data.player !== 'light' && data.player !== 'dark') return false
+    if (!validBoard(data.board)) return false
+    if (!data.score || !Number.isInteger(data.score.light) || !Number.isInteger(data.score.dark)) return false
+    if (!Number.isInteger(data.cubeValue) || data.cubeValue < 1) return false
+
+    mode = data.mode
+    targetPoints = data.targetPoints
+    crawford = data.crawford
+    matchWinner = data.matchWinner === 'light' || data.matchWinner === 'dark' ? data.matchWinner : null
+    paused = Boolean(data.paused)
+    flipped = Boolean(data.flipped)
+    board = data.board
+    phase = data.phase
+    player = data.player
+    lastRoll = data.lastRoll && (data.lastRoll.kind === 'opening' || data.lastRoll.kind === 'turn') && Array.isArray(data.lastRoll.dice) && data.lastRoll.dice.length === 2 ? data.lastRoll : null
+    lastTurnMoves = Array.isArray(data.lastTurnMoves) ? data.lastTurnMoves : []
+    remaining = Array.isArray(data.remaining) && data.remaining.every((n: unknown) => Number.isInteger(n)) ? data.remaining : []
+    selected = data.selected === 'bar' || (Number.isInteger(data.selected) && data.selected >= 0 && data.selected < 24) ? data.selected : null
+    history = Array.isArray(data.history) ? data.history : []
+    score = { light: data.score.light, dark: data.score.dark }
+    cubeValue = data.cubeValue
+    cubeOwner = data.cubeOwner === 'light' || data.cubeOwner === 'dark' ? data.cubeOwner : null
+    offerer = data.offerer === 'light' || data.offerer === 'dark' ? data.offerer : null
+    notice = typeof data.notice === 'string' ? data.notice : ''
+    winner = data.winner === 'light' || data.winner === 'dark' ? data.winner : null
+    gameNumber = Number.isInteger(data.gameNumber) && data.gameNumber >= 1 ? data.gameNumber : 1
+    sessionId = typeof data.sessionId === 'string' && /^[a-f0-9]{32}$/.test(data.sessionId) ? data.sessionId : newSessionId()
+    nextLogId = Number.isInteger(data.nextLogId) && data.nextLogId >= 0 ? data.nextLogId : 0
+    logEntries = Array.isArray(data.logEntries) ? data.logEntries.slice(-150) : []
+    sequences = phase === 'move' ? legalSequences(board, player, remaining) : []
+    botPlan = []
+    botBusy = false
+    render()
+    return true
+  } catch {
+    return false
+  }
+}
 
 function updateFileStatus(): void {
   const element = app.querySelector<HTMLElement>('[data-file-log-status]')
@@ -117,18 +215,21 @@ function startDiceAnimation(): void {
 function playerCard(side: Player): string {
   return `<div class="player-card ${player === side && phase !== 'over' ? 'active' : ''}">
     <span class="player-symbol ${side}"></span><div><strong>${name(side)} ${isBot(side) ? '<em>БОТ</em>' : ''}</strong><small>${side === 'light' ? 'Кремовые' : 'Графитовые'} · <span class="pip-count">${pipCount(board, side)} пип.</span></small></div>
-    <span class="score">${score[side]}<small>очк.</small></span>
+    <span class="score">${score[side]}${targetPoints ? `<em>/${targetPoints}</em>` : ''}<small>очк.</small></span>
   </div>`
 }
 
 function actionHtml(): string {
   if (diceAnimator.isRolling() && mode !== 'demo') return '<p class="action-hint">Кости катятся. Ход станет доступен после броска.</p>'
-  if (mode === 'demo') return `<p class="action-hint">${paused ? 'Автоматическая партия остановлена.' : botBusy ? 'Бот рассчитывает ход...' : phase === 'over' ? 'Следующая партия начнётся автоматически.' : 'Боты играют автоматически.'}</p><button class="${paused ? 'primary-button' : 'secondary-button'}" data-action="pause">${paused ? 'Продолжить' : 'Пауза'}</button>`
+  if (mode === 'demo') return `<p class="action-hint">${paused ? 'Автоматическая партия остановлена.' : botBusy ? 'Бот рассчитывает ход...' : phase === 'over' ? (matchWinner ? 'Следующий матч начнётся автоматически.' : 'Следующая партия начнётся автоматически.') : 'Боты играют автоматически.'}</p><button class="${paused ? 'primary-button' : 'secondary-button'}" data-action="pause">${paused ? 'Продолжить' : 'Пауза'}</button>`
   if (isAutomated()) return `<p class="action-hint">${botBusy ? 'Бот рассчитывает ход...' : 'Бот играет, подождите...'}</p>`
   if (phase === 'opening') return '<button class="primary-button" data-action="open">Определить первый ход <span>↗</span></button>'
   if (phase === 'offer') return `<div class="offer-actions"><button class="primary-button" data-action="accept">Принять ×${cubeValue * 2}</button><button class="secondary-button" data-action="pass">Отказаться</button></div>`
-  if (phase === 'roll') return `<button class="primary-button" data-action="roll">Бросить кости <span>↗</span></button>${cubeOwner === null || cubeOwner === player ? `<button class="secondary-button" data-action="double">Предложить удвоение</button>` : ''}`
-  if (phase === 'over') return '<button class="primary-button" data-action="new">Новая партия <span>↗</span></button>'
+  if (phase === 'roll') return `<button class="primary-button" data-action="roll">Бросить кости <span>↗</span></button>${canDouble() ? '<button class="secondary-button" data-action="double">Предложить удвоение</button>' : ''}`
+  if (phase === 'over') {
+    const label = matchWinner ? 'Новый матч' : targetPoints ? 'Следующая партия' : 'Новая партия'
+    return `<button class="primary-button" data-action="new">${label} <span>↗</span></button>`
+  }
   const completed = firstMoves(sequences).length === 0
   return `${completed ? '<button class="primary-button" data-action="finish">Завершить ход <span>↗</span></button>' : '<p class="action-hint">Выберите фишку и пункт назначения</p>'}${history.length ? '<button class="secondary-button" data-action="undo">Отменить ход</button>' : ''}`
 }
@@ -147,7 +248,7 @@ function logHtml(): string {
 function render(): void {
   const offOption = moveOptions().some(move => move.to === 'off')
   const offLastTo = lastTurnMoves.some(move => move.to === 'off')
-  const phaseLabel = phase === 'opening' ? 'Подготовка' : phase === 'offer' ? 'Решение за соперником' : phase === 'over' ? 'Партия окончена' : phase === 'roll' ? 'Ваш бросок' : firstMoves(sequences).length ? 'Ваш ход' : 'Ход завершён'
+  const phaseLabel = phase === 'opening' ? 'Подготовка' : phase === 'offer' ? 'Решение за соперником' : phase === 'over' ? (matchWinner ? 'Матч окончен' : 'Партия окончена') : phase === 'roll' ? 'Ваш бросок' : firstMoves(sequences).length ? 'Ваш ход' : 'Ход завершён'
   const muted = isSoundMuted()
   const boardHtml = renderBoard({
     board,
@@ -165,28 +266,42 @@ function render(): void {
     <header class="site-header"><div class="brand"><img class="brand-mark" src="${BASE}die-logo.svg" alt="" /><div><strong>NARD</strong><small>КОРОТКИЕ НАРДЫ</small></div></div><div class="header-right"><span class="mode-pill"><span></span> ${mode === 'local' ? 'ИГРА ВДВОЁМ' : mode === 'bot' ? 'ИГРА С БОТОМ' : 'БОТ VS БОТ'}</span><button class="text-button" data-action="mute" aria-pressed="${muted}" title="${muted ? 'Включить звук' : 'Выключить звук'}">${muted ? 'Звук выкл' : 'Звук вкл'}</button><a class="text-button" href="${BASE}online.html">Онлайн ↗</a><button class="text-button" data-action="rules">Правила <span>↗</span></button></div></header>
     <main class="layout">
       <section class="game-area" aria-label="Игровое поле">
-        <div class="board-head"><div><span class="eyebrow">КЛАССИЧЕСКАЯ ПАРТИЯ</span><h1>Игра начинается здесь.</h1></div><div class="board-head-meta"><span>24 ПУНКТА</span><i></i><span>15 ФИШЕК</span></div></div>
+        <div class="board-head"><div><span class="eyebrow">${targetPoints ? `МАТЧ ДО ${targetPoints} ОЧК. · ПАРТИЯ ${gameNumber}` : 'КЛАССИЧЕСКАЯ ПАРТИЯ'}</span><h1>Игра начинается здесь.</h1></div><div class="board-head-meta"><span>24 ПУНКТА</span><i></i><span>15 ФИШЕК</span></div></div>
         ${boardHtml}
         <div class="board-footer"><button class="off-target ${offOption ? 'possible' : ''} ${offLastTo ? 'last-to' : ''}" data-destination="off"><span class="target-icon">◎</span><span>ВЫВЕСТИ ФИШКУ</span></button><div class="board-footer-meta"><button class="board-tool-button" data-action="flip" title="Перевернуть доску" aria-label="Перевернуть доску">⇅ Перевернуть</button><span>${flipped ? 'Тёмные движутся от 1 к 24' : 'Светлые движутся от 24 к 1'} <span class="footer-arrow">↘</span></span></div></div>
       </section>
-      <aside class="sidebar"><div class="sidebar-top"><span class="eyebrow">КЛАССИЧЕСКАЯ ИГРА</span><button class="icon-button" data-action="new" title="Новая партия" aria-label="Новая партия">↻</button></div>
-        <label class="mode-control"><span class="eyebrow">РЕЖИМ ИГРЫ</span><select aria-label="Режим игры" data-mode><option value="local" ${mode === 'local' ? 'selected' : ''}>Два игрока</option><option value="bot" ${mode === 'bot' ? 'selected' : ''}>Против бота</option><option value="demo" ${mode === 'demo' ? 'selected' : ''}>Бот против бота</option></select></label>
+      <aside class="sidebar"><div class="sidebar-top"><span class="eyebrow">${targetPoints ? `МАТЧ ДО ${targetPoints}` : 'КЛАССИЧЕСКАЯ ИГРА'}</span><button class="icon-button" data-action="new" title="Новая партия" aria-label="Новая партия">↻</button></div>
+        <div class="sidebar-controls">
+          <label class="mode-control"><span class="eyebrow">РЕЖИМ ИГРЫ</span><select aria-label="Режим игры" data-mode><option value="local" ${mode === 'local' ? 'selected' : ''}>Два игрока</option><option value="bot" ${mode === 'bot' ? 'selected' : ''}>Против бота</option><option value="demo" ${mode === 'demo' ? 'selected' : ''}>Бот против бота</option></select></label>
+          <label class="mode-control"><span class="eyebrow">ФОРМАТ</span><select aria-label="Формат матча" data-match><option value="free" ${targetPoints === null ? 'selected' : ''}>Свободная игра</option>${MATCH_TARGETS.map(points => `<option value="${points}" ${targetPoints === points ? 'selected' : ''}>Матч до ${points} очков</option>`).join('')}</select></label>
+        </div>
         <div class="players">${playerCard('light')}<div class="versus">VS <span>•</span> ${phase === 'over' ? 'ФИНИШ' : 'ХОД'}</div>${playerCard('dark')}</div>
-        <div class="turn-panel" aria-live="polite"><span class="eyebrow">${phaseLabel.toUpperCase()}</span><strong>${phase === 'offer' ? name(opponent(offerer!)) : phase === 'over' ? `${name(winner!)} победили` : phase === 'opening' ? 'Кто начнёт?' : name(player)}</strong><p>${notice}</p></div>
-        <div class="dice-panel"><div class="dice-title"><span class="eyebrow">КУБ УДВОЕНИЯ</span><span class="cube"><b>×${cubeValue}</b>${cubeOwner ? ` · ${name(cubeOwner)}` : ''}</span></div></div>
+        <div class="turn-panel" aria-live="polite"><span class="eyebrow">${phaseLabel.toUpperCase()}</span><strong>${phase === 'offer' ? name(opponent(offerer!)) : phase === 'over' ? `${name(winner!)} ${matchWinner ? 'выиграли матч' : 'победили'}` : phase === 'opening' ? 'Кто начнёт?' : name(player)}</strong><p>${notice}</p></div>
+        <div class="dice-panel"><div class="dice-title"><span class="eyebrow">КУБ УДВОЕНИЯ</span>${crawford === 'active' ? '<span class="crawford-badge">КРОУФОРД · БЕЗ КУБА</span>' : `<span class="cube"><b>×${cubeValue}</b>${cubeOwner ? ` · ${name(cubeOwner)}` : ''}</span>`}</div></div>
         ${optionsHtml()}<div class="actions">${actionHtml()}</div>${logHtml()}
-        <div class="sidebar-bottom"><span class="tiny-diamond">◇</span> Первый, кто выведет все 15 фишек, побеждает.</div>
+        <div class="sidebar-bottom"><span class="tiny-diamond">◇</span> ${targetPoints ? `Побеждает первый, набравший ${targetPoints} ${pointWord(targetPoints)}.` : 'Первый, кто выведет все 15 фишек, побеждает.'}</div>
       </aside>
     </main>
     <footer class="site-footer"><span>© NARD / ВЕБ-ИГРА</span><span>СДЕЛАНО ДЛЯ ИГРЫ ВМЕСТЕ</span></footer>
-    ${rulesOpen ? `<div class="modal-backdrop" data-action="close-rules"><section class="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-title"><button class="modal-close" data-action="close-rules" aria-label="Закрыть правила">×</button><span class="eyebrow">КОРОТКИЕ НАРДЫ</span><h2 id="rules-title">Как играть</h2><p>Каждый игрок ведёт 15 фишек навстречу сопернику, собирает их в своём доме и выводит с доски. Светлые идут от пункта 24 к 1, тёмные в обратную сторону.</p><ol><li>Числа на костях играются как отдельные ходы. Дубль даёт четыре одинаковых хода. Нужно использовать максимум доступных костей; если доступна только одна из двух, играется старшая.</li><li>Пункт с двумя чужими фишками закрыт. Одиночную чужую фишку можно сбить на бар. Пока на баре есть свои фишки, сначала введите их в игру.</li><li>Выводить фишки можно, когда все свои фишки находятся в доме. Если нужный пункт пуст, сначала двигайте фишку с более дальнего пункта. Если таких нет, выводите с самого дальнего занятого.</li><li>Победа стоит одно очко, марс два, кокс три. Куб удвоения меняет стоимость партии и предлагается до броска.</li></ol><button class="primary-button" data-action="close-rules">Понятно</button></section></div>` : ''}
+    ${rulesOpen ? `<div class="modal-backdrop" data-action="close-rules"><section class="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rules-title"><button class="modal-close" data-action="close-rules" aria-label="Закрыть правила">×</button><span class="eyebrow">КОРОТКИЕ НАРДЫ</span><h2 id="rules-title">Как играть</h2><p>Каждый игрок ведёт 15 фишек навстречу сопернику, собирает их в своём доме и выводит с доски. Светлые идут от пункта 24 к 1, тёмные в обратную сторону.</p><ol><li>Числа на костях играются как отдельные ходы. Дубль даёт четыре одинаковых хода. Нужно использовать максимум доступных костей; если доступна только одна из двух, играется старшая.</li><li>Пункт с двумя чужими фишками закрыт. Одиночную чужую фишку можно сбить на бар. Пока на баре есть свои фишки, сначала введите их в игру.</li><li>Выводить фишки можно, когда все свои фишки находятся в доме. Если нужный пункт пуст, сначала двигайте фишку с более дальнего пункта. Если таких нет, выводите с самого дальнего занятого.</li><li>Победа стоит одно очко, марс два, кокс три. Куб удвоения меняет стоимость партии и предлагается до броска. В матче до 5, 12 или 15 очков действует правило Кроуфорда: когда игрок впервые в 1 очке от победы, следующая партия играется без куба.</li></ol><button class="primary-button" data-action="close-rules">Понятно</button></section></div>` : ''}
   </div>`
+  saveLocalState()
   if (rulesOpen) document.querySelector<HTMLButtonElement>('.modal-close')?.focus()
   queueBotStep()
 }
 
 function startGame(): void {
   diceAnimator.stop()
+  if (matchWinner !== null) {
+    score = { light: 0, dark: 0 }
+    crawford = 'none'
+    matchWinner = null
+    gameNumber = 0
+  } else if (gameNumber > 0) {
+    crawford = nextCrawfordState(crawford, targetPoints, score)
+  } else {
+    crawford = 'none'
+  }
   lastRoll = null
   lastTurnMoves = []
   gameVersion++
@@ -204,8 +319,12 @@ function startGame(): void {
   cubeOwner = null
   offerer = null
   winner = null
-  notice = 'Начните партию: каждый игрок бросит по одной кости.'
-  record(`Партия ${gameNumber} началась. Режим: ${mode === 'local' ? 'два игрока' : mode === 'bot' ? 'против бота' : 'бот против бота'}.`)
+  notice = crawford === 'active'
+    ? 'Партия Кроуфорда: куб удвоения отключён. Определите первый ход.'
+    : 'Начните партию: каждый игрок бросит по одной кости.'
+  const matchSuffix = targetPoints ? `, матч до ${targetPoints} очк.` : ''
+  const crawfordSuffix = crawford === 'active' ? ' (партия Кроуфорда)' : ''
+  record(`Партия ${gameNumber} началась. Режим: ${mode === 'local' ? 'два игрока' : mode === 'bot' ? 'против бота' : 'бот против бота'}${matchSuffix}${crawfordSuffix}.`)
   render()
 }
 
@@ -246,7 +365,7 @@ function roll(): void {
 
 function play(move: Move): void {
   if (phase !== 'move' || diceAnimator.isRolling() || !firstMoves(sequences).some(candidate => sameMove(candidate, move))) return
-  history.push({ board, sequences, remaining: [...remaining], logId: nextLogId, move, lastTurnMoves: [...lastTurnMoves] })
+  history.push({ board, remaining: [...remaining], logId: nextLogId, move, lastTurnMoves: [...lastTurnMoves] })
   const hit = move.to !== 'off' && board.points[move.to] === (player === 'light' ? -1 : 1)
   board = applyMove(board, player, move)
   sequences = sequences.filter(sequence => sameMove(sequence[0], move)).map(sequence => sequence.slice(1))
@@ -259,17 +378,30 @@ function play(move: Move): void {
   render()
 }
 
+function completeGame(winSide: Player, points: number, baseNotice: string, logMessage: string): void {
+  score[winSide] += points
+  winner = winSide
+  matchWinner = targetPoints !== null && score[winSide] >= targetPoints ? winSide : null
+  phase = 'over'
+  notice = matchWinner
+    ? `${baseNotice} Матч завершён со счётом ${score.light}:${score.dark}.`
+    : baseNotice
+  record(matchWinner ? `${logMessage} Матч выигран (${score.light}:${score.dark}).` : logMessage, 'result')
+  playSound('win')
+}
+
 function finishTurn(): void {
   if (phase !== 'move' || firstMoves(sequences).length) return
   if (board.off[player] === 15) {
     const kind = resultKind(board, player)
     const points = resultPoints(kind, cubeValue)
-    score[player] += points
-    winner = player
-    phase = 'over'
-    notice = `${kind === 'single' ? 'Обычная победа' : kind === 'gammon' ? 'Марс' : 'Кокс'}: +${points} ${pointWord(points)} к счёту.`
-    record(`${actor(player)}: ${kind === 'single' ? 'победа' : kind === 'gammon' ? 'марс' : 'кокс'}, +${points} ${pointWord(points)}.`, 'result')
-    playSound('win')
+    const kindText = kind === 'single' ? 'Обычная победа' : kind === 'gammon' ? 'Марс' : 'Кокс'
+    completeGame(
+      player,
+      points,
+      `${kindText}: +${points} ${pointWord(points)} к счёту.`,
+      `${actor(player)}: ${kind === 'single' ? 'победа' : kind === 'gammon' ? 'марс' : 'кокс'}, +${points} ${pointWord(points)}.`,
+    )
   } else {
     if (history.length === 0) {
       lastTurnMoves = []
@@ -277,7 +409,7 @@ function finishTurn(): void {
     }
     player = opponent(player)
     phase = 'roll'
-    notice = 'Бросьте кости или предложите удвоение до броска.'
+    notice = canDouble() ? 'Бросьте кости или предложите удвоение до броска.' : 'Бросьте кости.'
     remaining = []
     history = []
     sequences = []
@@ -301,8 +433,8 @@ function activateAction(action: string): void {
       const snapshot = history.pop()
       if (!snapshot) break
       board = snapshot.board
-      sequences = snapshot.sequences
       remaining = snapshot.remaining
+      sequences = legalSequences(board, player, remaining)
       lastTurnMoves = snapshot.lastTurnMoves
       logEntries = logEntries.filter(entry => entry.id <= snapshot.logId)
       record(`${actor(player)}: отмена хода ${moveText(snapshot.move)}.`)
@@ -312,7 +444,7 @@ function activateAction(action: string): void {
       break
     }
     case 'double':
-      if (phase !== 'roll' || (cubeOwner !== null && cubeOwner !== player)) break
+      if (!canDouble()) break
       offerer = player
       phase = 'offer'
       notice = `${name(player)} предлагают удвоить стоимость партии. ${name(opponent(player))} должны принять или отказаться.`
@@ -331,17 +463,20 @@ function activateAction(action: string): void {
       playSound('cube')
       render()
       break
-    case 'pass':
+    case 'pass': {
       if (phase !== 'offer' || !offerer) break
-      score[offerer] += cubeValue
-      winner = offerer
-      phase = 'over'
-      notice = `${name(opponent(offerer))} отказались от удвоения. ${name(offerer)} получают ${cubeValue} ${pointWord(cubeValue)}.`
-      record(`${actor(opponent(offerer))}: отказ от удвоения. ${actor(offerer)}: +${cubeValue} ${pointWord(cubeValue)}.`, 'result')
+      const winSide = offerer
+      const pts = cubeValue
       offerer = null
-      playSound('win')
+      completeGame(
+        winSide,
+        pts,
+        `${name(opponent(winSide))} отказались от удвоения. ${name(winSide)} получают ${pts} ${pointWord(pts)}.`,
+        `${actor(opponent(winSide))}: отказ от удвоения. ${actor(winSide)}: +${pts} ${pointWord(pts)}.`,
+      )
       render()
       break
+    }
     case 'rules': rulesOpen = true; render(); document.querySelector<HTMLButtonElement>('.modal-close')?.focus(); break
     case 'close-rules': rulesOpen = false; render(); document.querySelector<HTMLButtonElement>('[data-action="rules"]')?.focus(); break
   }
@@ -404,7 +539,7 @@ function runBotStep(): void {
     return
   }
   if (phase === 'roll') {
-    if ((cubeOwner === null || cubeOwner === player) && shouldOfferDouble(board, player, cubeValue)) activateAction('double')
+    if (canDouble() && shouldOfferDouble(board, player, cubeValue)) activateAction('double')
     else roll()
     return
   }
@@ -414,17 +549,32 @@ function runBotStep(): void {
   else requestBotPlay()
 }
 
-app.addEventListener('change', event => {
-  const select = (event.target as HTMLElement).closest<HTMLSelectElement>('[data-mode]')
-  if (!select || (select.value !== 'local' && select.value !== 'bot' && select.value !== 'demo')) return
-  mode = select.value
+function resetSession(): void {
   paused = false
   score = { light: 0, dark: 0 }
+  crawford = 'none'
+  matchWinner = null
   logEntries = []
   nextLogId = 0
   sessionId = newSessionId()
   gameNumber = 0
   startGame()
+}
+
+app.addEventListener('change', event => {
+  const modeSelect = (event.target as HTMLElement).closest<HTMLSelectElement>('[data-mode]')
+  if (modeSelect && (modeSelect.value === 'local' || modeSelect.value === 'bot' || modeSelect.value === 'demo')) {
+    mode = modeSelect.value
+    resetSession()
+    return
+  }
+  const matchSelect = (event.target as HTMLElement).closest<HTMLSelectElement>('[data-match]')
+  if (matchSelect) {
+    const parsed = matchSelect.value === 'free' ? null : Number(matchSelect.value)
+    if (parsed !== null && !isMatchTarget(parsed)) return
+    targetPoints = parsed
+    resetSession()
+  }
 })
 
 app.addEventListener('click', event => {
@@ -473,4 +623,4 @@ document.addEventListener('keydown', event => {
   }
 })
 
-startGame()
+if (!loadLocalState()) startGame()

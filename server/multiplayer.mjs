@@ -2,7 +2,10 @@ import { randomInt } from 'node:crypto'
 import { appendGameEvent, handleLogRequest } from './log-api.mjs'
 import { cookieToken, clearSessionCookie, newId, newSessionToken, newToken, publicOrigin, sessionCookie, SESSION_DAYS, tokenHash, tokenMatches } from './auth.mjs'
 import { createStore } from './store.mjs'
-import { applyMove, firstMoves, initialBoard, legalSequences, opponent, resultKind, resultPoints, sameMove } from './generated/engine.js'
+import {
+  applyMove, canOfferDouble, firstMoves, initialBoard, isMatchTarget,
+  legalSequences, nextCrawfordState, opponent, resultKind, resultPoints, sameMove,
+} from './generated/engine.js'
 
 class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status }
@@ -15,6 +18,34 @@ const gameFor = (state, userId) => state.games.some(game => game.phase !== 'over
 const now = () => new Date().toISOString()
 const loopbackHosts = ['127.0.0.1', 'localhost', '[::1]']
 const guestFileLogsAllowed = !publicOrigin || loopbackHosts.includes(new URL(publicOrigin).hostname)
+const colorModes = new Set(['random', 'light', 'dark'])
+const gameScore = game => game.score ? { light: game.score.light, dark: game.score.dark } : { light: 0, dark: 0 }
+const gameTarget = game => isMatchTarget(game.targetPoints) ? game.targetPoints : null
+const gameCrawford = game => game.crawford === 'active' || game.crawford === 'used' ? game.crawford : 'none'
+const gameReadyNext = game => Array.isArray(game.readyNext) ? game.readyNext : []
+
+function inactivityTimeoutMs() {
+  const raw = Number(process.env.GAME_INACTIVITY_MINUTES)
+  const minutes = Number.isFinite(raw) && raw > 0 ? raw : 5
+  return minutes * 60_000
+}
+
+function waitingPlayer(game) {
+  if (game.phase === 'over') return null
+  if (game.phase === 'offer') return game.offerer ? opponent(game.offerer) : null
+  if (game.phase === 'roll' || game.phase === 'move') return game.turn
+  if (game.phase === 'game_over') {
+    const ready = gameReadyNext(game)
+    return ready.length === 1 ? opponent(ready[0]) : null
+  }
+  return null
+}
+
+function claimTimeoutAt(game, color) {
+  const waiter = waitingPlayer(game)
+  if (!waiter || waiter === color) return null
+  return new Date(Date.parse(game.updatedAt) + inactivityTimeoutMs()).toISOString()
+}
 
 function send(response, status, body, headers = {}) {
   response.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers })
@@ -77,8 +108,53 @@ function event(game, kind, text) {
   return entry
 }
 
-function visibleGame(game, userId) {
+function computeStats(state, userId) {
+  let played = 0
+  let wins = 0
+  let losses = 0
+  let pointsFor = 0
+  let pointsAgainst = 0
+  const headToHead = {}
+  for (const game of state.games) {
+    if (game.phase !== 'over' || !game.result) continue
+    const color = playerColor(game, userId)
+    if (!color) continue
+    const oppColor = opponent(color)
+    const oppId = game.players[oppColor]
+    const won = game.result.winner === color
+    const myPoints = game.score ? game.score[color] : (won ? game.result.points : 0)
+    const oppPoints = game.score ? game.score[oppColor] : (won ? 0 : game.result.points)
+    played++
+    if (won) wins++
+    else losses++
+    pointsFor += myPoints
+    pointsAgainst += oppPoints
+    const record = headToHead[oppId] ?? (headToHead[oppId] = { wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0 })
+    if (won) record.wins++
+    else record.losses++
+    record.pointsFor += myPoints
+    record.pointsAgainst += oppPoints
+  }
+  return { played, wins, losses, pointsFor, pointsAgainst, headToHead }
+}
+
+function visibleGame(game, userId, state, live) {
   const color = playerColor(game, userId)
+  const oppId = game.players[opponent(color)]
+  let rematchInvite = null
+  if (game.phase === 'over' && state) {
+    const pending = state.invites.find(item =>
+      item.status === 'pending' && Date.parse(item.expiresAt) > Date.now()
+      && ((item.from === userId && item.to === oppId) || (item.from === oppId && item.to === userId)),
+    )
+    if (pending) {
+      rematchInvite = {
+        id: pending.id,
+        direction: pending.from === userId ? 'outgoing' : 'incoming',
+        targetPoints: isMatchTarget(pending.targetPoints) ? pending.targetPoints : null,
+      }
+    }
+  }
   return {
     id: game.id,
     players: game.players,
@@ -93,9 +169,18 @@ function visibleGame(game, userId) {
     cubeValue: game.cubeValue,
     cubeOwner: game.cubeOwner,
     offerer: game.offerer,
+    targetPoints: gameTarget(game),
+    gameNumber: game.gameNumber ?? 1,
+    score: gameScore(game),
+    crawford: gameCrawford(game),
+    readyNext: gameReadyNext(game),
+    lastGameResult: game.lastGameResult ?? null,
     result: game.result,
     events: game.events,
     version: game.version,
+    claimTimeoutAt: claimTimeoutAt(game, color),
+    opponentOnline: live ? live.has(oppId) : false,
+    rematchInvite,
     legalMoves: game.phase === 'move' && game.turn === color ? firstMoves(legalSequences(game.board, color, game.remaining)) : [],
   }
 }
@@ -106,20 +191,75 @@ function gameById(state, id, userId) {
   return game
 }
 
-function startGame(from, to) {
+function rollOpening() {
   let lightRoll = randomInt(1, 7)
   let darkRoll = randomInt(1, 7)
   while (lightRoll === darkRoll) { lightRoll = randomInt(1, 7); darkRoll = randomInt(1, 7) }
-  const turn = lightRoll > darkRoll ? 'light' : 'dark'
+  return { lightRoll, darkRoll, turn: lightRoll > darkRoll ? 'light' : 'dark' }
+}
+
+function startGame(from, to, options = {}) {
+  const { lightRoll, darkRoll, turn } = rollOpening()
+  const colorMode = colorModes.has(options.colorMode) ? options.colorMode : 'random'
+  const players = colorMode === 'light'
+    ? { light: from, dark: to }
+    : colorMode === 'dark'
+      ? { light: to, dark: from }
+      : randomInt(0, 2) === 0 ? { light: from, dark: to } : { light: to, dark: from }
+  const targetPoints = isMatchTarget(options.targetPoints) ? options.targetPoints : null
   const game = {
-    id: newId(), players: { light: from, dark: to }, board: initialBoard(), turn, phase: 'move',
+    id: newId(), players, board: initialBoard(), turn, phase: 'move',
     dice: [lightRoll, darkRoll], lastRoll: { id: newId(), kind: 'opening', player: turn, dice: [lightRoll, darkRoll], at: now() },
     lastTurn: null,
     remaining: [lightRoll, darkRoll], cubeValue: 1,
-    cubeOwner: null, offerer: null, result: null, events: [], version: 0, createdAt: now(), updatedAt: now(),
+    cubeOwner: null, offerer: null,
+    targetPoints, gameNumber: 1, score: { light: 0, dark: 0 }, crawford: 'none', readyNext: [], lastGameResult: null,
+    result: null, events: [], version: 0, createdAt: now(), updatedAt: now(),
   }
-  event(game, 'roll', `Первый бросок: светлые ${lightRoll}, тёмные ${darkRoll}. Начинают ${turn === 'light' ? 'светлые' : 'тёмные'}.`)
+  const matchPrefix = targetPoints ? `Матч до ${targetPoints} очк. · партия 1. ` : ''
+  event(game, 'roll', `${matchPrefix}Первый бросок: светлые ${lightRoll}, тёмные ${darkRoll}. Начинают ${turn === 'light' ? 'светлые' : 'тёмные'}.`)
   return game
+}
+
+function startNextGame(game, add) {
+  const score = gameScore(game)
+  const target = gameTarget(game)
+  game.crawford = nextCrawfordState(gameCrawford(game), target, score)
+  game.gameNumber = (game.gameNumber ?? 1) + 1
+  const { lightRoll, darkRoll, turn } = rollOpening()
+  game.board = initialBoard()
+  game.turn = turn
+  game.phase = 'move'
+  game.dice = [lightRoll, darkRoll]
+  game.lastRoll = { id: newId(), kind: 'opening', player: turn, dice: [lightRoll, darkRoll], at: now() }
+  game.lastTurn = null
+  game.remaining = [lightRoll, darkRoll]
+  game.cubeValue = 1
+  game.cubeOwner = null
+  game.offerer = null
+  game.readyNext = []
+  game.lastGameResult = null
+  const crawfordNote = game.crawford === 'active' ? ' (партия Кроуфорда, без куба)' : ''
+  add('roll', `Партия ${game.gameNumber}${crawfordNote}. Первый бросок: светлые ${lightRoll}, тёмные ${darkRoll}. Начинают ${turn === 'light' ? 'светлые' : 'тёмные'}.`)
+}
+
+function finishSingleGame(game, winner, kind, points, add, message) {
+  game.score = gameScore(game)
+  game.score[winner] += points
+  game.lastGameResult = { winner, kind, points }
+  game.offerer = null
+  game.remaining = []
+  const target = gameTarget(game)
+  if (target !== null && game.score[winner] < target) {
+    game.phase = 'game_over'
+    game.readyNext = []
+    add('result', `${message} Счёт матча: ${game.score.light}:${game.score.dark} (до ${target}).`)
+  } else {
+    game.phase = 'over'
+    game.readyNext = []
+    game.result = { winner, kind, points }
+    add('result', target !== null ? `${message} Матч завершён со счётом ${game.score.light}:${game.score.dark}.` : message)
+  }
 }
 
 export async function createMultiplayerApi() {
@@ -139,7 +279,7 @@ export async function createMultiplayerApi() {
   const writeEvents = async (game, entries) => {
     let saved = true
     for (const entry of entries) {
-      try { await appendGameEvent({ session: game.id, game: 1, kind: entry.kind, text: entry.text }) }
+      try { await appendGameEvent({ session: game.id, game: game.gameNumber ?? 1, kind: entry.kind, text: entry.text }) }
       catch (error) { saved = false; console.error('Game log write failed:', error.message) }
     }
     return saved
@@ -212,9 +352,27 @@ export async function createMultiplayerApi() {
         const pending = state.invites.filter(item => item.status === 'pending' && Date.parse(item.expiresAt) > Date.now())
         send(response, 200, {
           online: state.users.filter(item => item.id !== user.id && !item.disabled && live.has(item.id)).map(publicUser),
-          incoming: pending.filter(item => item.to === user.id).map(item => ({ id: item.id, from: names.get(item.from), createdAt: item.createdAt })),
-          outgoing: pending.filter(item => item.from === user.id).map(item => ({ id: item.id, to: names.get(item.to), createdAt: item.createdAt })),
-          games: state.games.filter(item => playerColor(item, user.id)).slice(-30).reverse().map(item => ({ id: item.id, opponent: names.get(item.players.light === user.id ? item.players.dark : item.players.light), phase: item.phase, updatedAt: item.updatedAt, result: item.result })),
+          incoming: pending.filter(item => item.to === user.id).map(item => ({
+            id: item.id, from: names.get(item.from), fromId: item.from,
+            targetPoints: isMatchTarget(item.targetPoints) ? item.targetPoints : null,
+            colorMode: colorModes.has(item.colorMode) ? item.colorMode : 'random',
+            createdAt: item.createdAt,
+          })),
+          outgoing: pending.filter(item => item.from === user.id).map(item => ({
+            id: item.id, to: names.get(item.to), toId: item.to,
+            targetPoints: isMatchTarget(item.targetPoints) ? item.targetPoints : null,
+            colorMode: colorModes.has(item.colorMode) ? item.colorMode : 'random',
+            createdAt: item.createdAt,
+          })),
+          games: state.games.filter(item => playerColor(item, user.id)).slice(-30).reverse().map(item => {
+            const oppId = item.players.light === user.id ? item.players.dark : item.players.light
+            return {
+              id: item.id, opponent: names.get(oppId), opponentId: oppId, phase: item.phase,
+              targetPoints: gameTarget(item), score: gameScore(item),
+              updatedAt: item.updatedAt, result: item.result,
+            }
+          }),
+          stats: computeStats(state, user.id),
         })
         return
       }
@@ -255,8 +413,11 @@ export async function createMultiplayerApi() {
           if (account.disabled) for (const game of state.games) {
             const color = playerColor(game, account.id)
             if (!color || game.phase === 'over') continue
+            game.score = gameScore(game)
+            game.score[opponent(color)] += game.cubeValue
             game.phase = 'over'
             game.offerer = null
+            game.readyNext = []
             game.result = { winner: opponent(color), kind: 'forfeit', points: game.cubeValue }
             ended.push({ game, entry: event(game, 'result', `Аккаунт «${account.name}» отключён администратором. Партия завершена.`) })
           }
@@ -273,48 +434,64 @@ export async function createMultiplayerApi() {
         const body = await bodyJson(request)
         const target = body.to
         if (typeof target !== 'string' || !/^[a-f0-9]{32}$/.test(target) || target === user.id) fail(400, 'Некорректный адресат')
+        const targetPoints = body.targetPoints === undefined || body.targetPoints === null
+          ? null
+          : isMatchTarget(body.targetPoints) ? body.targetPoints : fail(400, 'Некорректная длина матча')
+        const colorMode = body.colorMode === undefined
+          ? 'random'
+          : colorModes.has(body.colorMode) ? body.colorMode : fail(400, 'Некорректный режим цвета')
         const invite = await store.transact(state => {
           assertSession(state, auth)
           if (!state.users.some(item => item.id === target && !item.disabled) || !live.has(target)) fail(409, 'Игрок уже не в сети')
           if (gameFor(state, user.id) || gameFor(state, target)) fail(409, 'Один из игроков уже в партии')
           if (state.invites.some(item => item.status === 'pending' && item.from === user.id && item.to === target && Date.parse(item.expiresAt) > Date.now())) fail(409, 'Приглашение уже отправлено')
-          const created = { id: newId(), from: user.id, to: target, status: 'pending', createdAt: now(), expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() }
+          const created = { id: newId(), from: user.id, to: target, targetPoints, colorMode, status: 'pending', createdAt: now(), expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() }
           state.invites.push(created)
           return created
         })
-        send(response, 201, { invite: { id: invite.id, expiresAt: invite.expiresAt } })
+        send(response, 201, { invite: { id: invite.id, targetPoints: invite.targetPoints, colorMode: invite.colorMode, expiresAt: invite.expiresAt } })
         broadcast()
         return
       }
-      const inviteAction = pathname.match(/^\/api\/invites\/([a-f0-9]{32})\/(accept|decline)$/)
+      const inviteAction = pathname.match(/^\/api\/invites\/([a-f0-9]{32})\/(accept|decline|cancel)$/)
       if (inviteAction && request.method === 'POST') {
+        const action = inviteAction[2]
         const result = await store.transact(state => {
           assertSession(state, auth)
+          if (action === 'cancel') {
+            const invite = state.invites.find(item => item.id === inviteAction[1] && item.from === user.id)
+            if (!invite || invite.status !== 'pending' || Date.parse(invite.expiresAt) <= Date.now()) fail(409, 'Приглашение недоступно')
+            invite.status = 'cancelled'
+            return { game: null }
+          }
           const invite = state.invites.find(item => item.id === inviteAction[1] && item.to === user.id)
           if (!invite || invite.status !== 'pending' || Date.parse(invite.expiresAt) <= Date.now()) fail(409, 'Приглашение недоступно')
-          if (inviteAction[2] === 'decline') { invite.status = 'declined'; return { game: null } }
+          if (action === 'decline') { invite.status = 'declined'; return { game: null } }
           if (!live.has(invite.from) || !state.users.some(item => item.id === invite.from && !item.disabled)) fail(409, 'Отправитель уже не в сети')
           if (gameFor(state, invite.from) || gameFor(state, invite.to)) fail(409, 'Один из игроков уже в партии')
-          const game = startGame(invite.from, invite.to)
+          const game = startGame(invite.from, invite.to, { targetPoints: invite.targetPoints ?? null, colorMode: invite.colorMode ?? 'random' })
           state.games.push(game)
           invite.status = 'accepted'
           invite.gameId = game.id
           return { game }
         })
         const fileLogged = result.game ? await writeEvents(result.game, result.game.events) : true
-        send(response, 200, { gameId: result.game?.id ?? null, fileLogged })
+        send(response, 200, action === 'cancel' ? { ok: true } : { gameId: result.game?.id ?? null, fileLogged })
         broadcast()
         return
       }
 
-      const gameRoute = pathname.match(/^\/api\/games\/([a-f0-9]{32})(?:\/(roll|move|double|respond|resign))?$/)
+      const gameRoute = pathname.match(/^\/api\/games\/([a-f0-9]{32})(?:\/(roll|move|turn|double|respond|resign|next|claim-timeout))?$/)
       if (gameRoute) {
         const id = gameRoute[1]
         const action = gameRoute[2]
         if (!action && request.method === 'GET') {
           const state = store.read()
           const game = gameById(state, id, user.id)
-          send(response, 200, { game: visibleGame(game, user.id), users: state.users.filter(item => [game.players.light, game.players.dark].includes(item.id)).map(publicUser) })
+          send(response, 200, {
+            game: visibleGame(game, user.id, state, live),
+            users: state.users.filter(item => [game.players.light, game.players.dark].includes(item.id)).map(publicUser),
+          })
           return
         }
         if (request.method !== 'POST') fail(405, 'Метод недоступен')
@@ -352,16 +529,39 @@ export async function createMultiplayerApi() {
             if (game.board.off[color] === 15) {
               const kind = resultKind(game.board, color)
               const points = resultPoints(kind, game.cubeValue)
-              game.phase = 'over'
-              game.result = { winner: color, kind, points }
-              add('result', `${color === 'light' ? 'Светлые' : 'Тёмные'} победили: ${kind === 'single' ? 'обычная победа' : kind === 'gammon' ? 'марс' : 'кокс'}, ${points} очк.`)
+              finishSingleGame(game, color, kind, points, add, `${color === 'light' ? 'Светлые' : 'Тёмные'} победили: ${kind === 'single' ? 'обычная победа' : kind === 'gammon' ? 'марс' : 'кокс'}, ${points} очк.`)
             } else if (legalSequences(game.board, color, game.remaining).length === 0) {
               game.phase = 'roll'
               game.turn = opponent(color)
               game.remaining = []
             }
+          } else if (action === 'turn') {
+            if (game.phase !== 'move' || game.turn !== color) fail(409, 'Сейчас не ваш ход')
+            if (!Array.isArray(body.moves) || body.moves.length < 1 || body.moves.length > 4) fail(400, 'Ожидается список ходов')
+            const moves = body.moves.map(item => ({ from: item?.from, to: item?.to, die: item?.die }))
+            const sequences = legalSequences(game.board, color, game.remaining)
+            if (!sequences.some(sequence => sequence.length === moves.length && sequence.every((candidate, index) => sameMove(candidate, moves[index])))) {
+              fail(400, 'Недопустимая последовательность ходов')
+            }
+            for (const move of moves) {
+              const hit = move.to !== 'off' && game.board.points[move.to] === (color === 'light' ? -1 : 1)
+              game.board = applyMove(game.board, color, move)
+              add('move', `${color === 'light' ? 'Светлые' : 'Тёмные'}: ${move.from === 'bar' ? 'бар' : move.from + 1} → ${move.to === 'off' ? 'вывод' : move.to + 1}, кость ${move.die}${hit ? ', сбита фишка' : ''}.`)
+            }
+            game.lastTurn = { player: color, rollId: game.lastRoll?.id ?? null, moves }
+            game.remaining = []
+            if (game.board.off[color] === 15) {
+              const kind = resultKind(game.board, color)
+              const points = resultPoints(kind, game.cubeValue)
+              finishSingleGame(game, color, kind, points, add, `${color === 'light' ? 'Светлые' : 'Тёмные'} победили: ${kind === 'single' ? 'обычная победа' : kind === 'gammon' ? 'марс' : 'кокс'}, ${points} очк.`)
+            } else {
+              game.phase = 'roll'
+              game.turn = opponent(color)
+            }
           } else if (action === 'double') {
-            if (game.phase !== 'roll' || game.turn !== color || (game.cubeOwner !== null && game.cubeOwner !== color)) fail(409, 'Сейчас нельзя удвоить')
+            if (game.phase !== 'roll' || game.turn !== color || !canOfferDouble(game.cubeOwner, color, game.cubeValue, gameTarget(game), gameScore(game), gameCrawford(game))) {
+              fail(409, 'Сейчас нельзя удвоить')
+            }
             game.phase = 'offer'
             game.offerer = color
             add('cube', `${color === 'light' ? 'Светлые' : 'Тёмные'} предложили удвоение до ×${game.cubeValue * 2}.`)
@@ -374,21 +574,48 @@ export async function createMultiplayerApi() {
               game.phase = 'roll'
               add('cube', `Удвоение принято, куб ×${game.cubeValue}.`)
             } else {
-              game.phase = 'over'
-              game.result = { winner: game.offerer, kind: 'drop', points: game.cubeValue }
-              game.offerer = null
-              add('result', `Отказ от удвоения. Победителю ${game.cubeValue} очк.`)
+              finishSingleGame(game, game.offerer, 'drop', game.cubeValue, add, `Отказ от удвоения. Победителю ${game.cubeValue} очк.`)
             }
           } else if (action === 'resign') {
+            if (game.phase === 'game_over' && body.scope === 'game') fail(409, 'Партия уже завершена')
+            const scope = body.scope === 'game' && gameTarget(game) !== null ? 'game' : 'match'
+            if (scope === 'game') {
+              finishSingleGame(game, opponent(color), 'resign', game.cubeValue, add, `${color === 'light' ? 'Светлые' : 'Тёмные'} сдались в партии. Сопернику ${game.cubeValue} очк.`)
+            } else {
+              game.score = gameScore(game)
+              game.score[opponent(color)] += game.cubeValue
+              game.phase = 'over'
+              game.result = { winner: opponent(color), kind: 'resign', points: game.cubeValue }
+              game.offerer = null
+              game.readyNext = []
+              add('result', `${color === 'light' ? 'Светлые' : 'Тёмные'} сдались. Сопернику ${game.cubeValue} очк.`)
+            }
+          } else if (action === 'next') {
+            if (game.phase !== 'game_over') fail(409, 'Сейчас нельзя начать следующую партию')
+            game.readyNext = gameReadyNext(game)
+            if (!game.readyNext.includes(color)) game.readyNext.push(color)
+            if (game.readyNext.includes('light') && game.readyNext.includes('dark')) {
+              startNextGame(game, add)
+            } else {
+              game.updatedAt = now()
+              game.version++
+            }
+          } else if (action === 'claim-timeout') {
+            const waiter = waitingPlayer(game)
+            if (!waiter || waiter === color) fail(409, 'Сейчас не очередь соперника')
+            if (Date.now() - Date.parse(game.updatedAt) < inactivityTimeoutMs()) fail(409, 'Таймаут ещё не истёк')
+            game.score = gameScore(game)
+            game.score[color] += game.cubeValue
             game.phase = 'over'
-            game.result = { winner: opponent(color), kind: 'resign', points: game.cubeValue }
             game.offerer = null
-            add('result', `${color === 'light' ? 'Светлые' : 'Тёмные'} сдались. Сопернику ${game.cubeValue} очк.`)
+            game.readyNext = []
+            game.result = { winner: color, kind: 'timeout', points: game.cubeValue }
+            add('result', `${waiter === 'light' ? 'Светлые' : 'Тёмные'} не сделали ход вовремя. Победа по таймауту.`)
           } else fail(404, 'Действие не найдено')
-          return { game, entries }
+          return { game, entries, snapshot: state }
         })
         const fileLogged = await writeEvents(change.game, change.entries)
-        send(response, 200, { game: visibleGame(change.game, user.id), fileLogged })
+        send(response, 200, { game: visibleGame(change.game, user.id, change.snapshot, live), fileLogged })
         broadcast()
         return
       }

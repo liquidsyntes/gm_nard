@@ -4,7 +4,8 @@ import {
   applyMove, canOfferDouble, firstMoves, initialBoard, isMatchTarget, legalSequences,
   MATCH_TARGETS, nextCrawfordState, opponent, pipCount, resultKind, resultPoints, sameMove,
 } from './engine.ts'
-import { chooseBotPlay, shouldAcceptDouble, shouldOfferDouble } from './bot.ts'
+import { BOT_DIFFICULTIES, chooseBotPlay, isBotDifficulty, shouldAcceptDouble, shouldOfferDouble } from './bot.ts'
+import type { BotDifficulty } from './bot.ts'
 import { createDiceAnimator } from './board-dice.ts'
 import type { BoardRoll } from './board-dice.ts'
 import { bindBoardDragAndDrop, renderBoard } from './board-view.ts'
@@ -20,6 +21,7 @@ interface Snapshot { board: Board; remaining: number[]; logId: number; move: Mov
 const STORAGE_KEY = 'nard_local_state_v1'
 
 let mode: Mode = 'local'
+let botDifficulty: BotDifficulty = 'medium'
 let targetPoints: MatchTarget | null = null
 let crawford: CrawfordState = 'none'
 let matchWinner: Player | null = null
@@ -60,6 +62,7 @@ const BASE = import.meta.env.BASE_URL
 const newSessionId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('')
 let sessionId = newSessionId()
 const name = (side: Player) => side === 'light' ? 'Светлые' : 'Тёмные'
+const difficultyLabel = (level: BotDifficulty) => level === 'easy' ? 'Лёгкий' : level === 'medium' ? 'Средний' : 'Сильный'
 const dieLabel = (value: number) => ['','⚀','⚁','⚂','⚃','⚄','⚅'][value]
 const pointWord = (value: number) => value % 100 >= 11 && value % 100 <= 14 ? 'очков' : value % 10 === 1 ? 'очко' : value % 10 >= 2 && value % 10 <= 4 ? 'очка' : 'очков'
 const isBot = (side: Player) => mode === 'demo' || (mode === 'bot' && side === 'dark')
@@ -76,6 +79,7 @@ function saveLocalState(): void {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
       version: 1,
       mode,
+      botDifficulty,
       targetPoints,
       crawford,
       matchWinner,
@@ -127,6 +131,7 @@ function loadLocalState(): boolean {
     if (!Number.isInteger(data.cubeValue) || data.cubeValue < 1) return false
 
     mode = data.mode
+    botDifficulty = isBotDifficulty(data.botDifficulty) ? data.botDifficulty : 'medium'
     targetPoints = data.targetPoints
     crawford = data.crawford
     matchWinner = data.matchWinner === 'light' || data.matchWinner === 'dark' ? data.matchWinner : null
@@ -273,6 +278,7 @@ function render(): void {
       <aside class="sidebar"><div class="sidebar-top"><span class="eyebrow">${targetPoints ? `МАТЧ ДО ${targetPoints}` : 'КЛАССИЧЕСКАЯ ИГРА'}</span><button class="icon-button" data-action="new" title="Новая партия" aria-label="Новая партия">↻</button></div>
         <div class="sidebar-controls">
           <label class="mode-control"><span class="eyebrow">РЕЖИМ ИГРЫ</span><select aria-label="Режим игры" data-mode><option value="local" ${mode === 'local' ? 'selected' : ''}>Два игрока</option><option value="bot" ${mode === 'bot' ? 'selected' : ''}>Против бота</option><option value="demo" ${mode === 'demo' ? 'selected' : ''}>Бот против бота</option></select></label>
+          ${mode !== 'local' ? `<label class="mode-control"><span class="eyebrow">СЛОЖНОСТЬ БОТА</span><select aria-label="Сложность бота" data-difficulty>${BOT_DIFFICULTIES.map(level => `<option value="${level}" ${botDifficulty === level ? 'selected' : ''}>${difficultyLabel(level)}</option>`).join('')}</select></label>` : ''}
           <label class="mode-control"><span class="eyebrow">ФОРМАТ</span><select aria-label="Формат матча" data-match><option value="free" ${targetPoints === null ? 'selected' : ''}>Свободная игра</option>${MATCH_TARGETS.map(points => `<option value="${points}" ${targetPoints === points ? 'selected' : ''}>Матч до ${points} очков</option>`).join('')}</select></label>
         </div>
         <div class="players">${playerCard('light')}<div class="versus">VS <span>•</span> ${phase === 'over' ? 'ФИНИШ' : 'ХОД'}</div>${playerCard('dark')}</div>
@@ -322,9 +328,10 @@ function startGame(): void {
   notice = crawford === 'active'
     ? 'Партия Кроуфорда: куб удвоения отключён. Определите первый ход.'
     : 'Начните партию: каждый игрок бросит по одной кости.'
+  const botSuffix = mode !== 'local' ? `, сложность: ${difficultyLabel(botDifficulty).toLowerCase()}` : ''
   const matchSuffix = targetPoints ? `, матч до ${targetPoints} очк.` : ''
   const crawfordSuffix = crawford === 'active' ? ' (партия Кроуфорда)' : ''
-  record(`Партия ${gameNumber} началась. Режим: ${mode === 'local' ? 'два игрока' : mode === 'bot' ? 'против бота' : 'бот против бота'}${matchSuffix}${crawfordSuffix}.`)
+  record(`Партия ${gameNumber} началась. Режим: ${mode === 'local' ? 'два игрока' : mode === 'bot' ? 'против бота' : 'бот против бота'}${botSuffix}${matchSuffix}${crawfordSuffix}.`)
   render()
 }
 
@@ -495,6 +502,7 @@ function requestBotPlay(): void {
   const currentBoard = board
   const currentPlayer = player
   const currentDice = [...remaining]
+  const difficulty = botDifficulty
   botBusy = true
   notice = `${name(player)}: бот рассчитывает ход.`
   render()
@@ -513,7 +521,7 @@ function requestBotPlay(): void {
     botWorker?.terminate()
     botWorker = null
     window.setTimeout(() => {
-      try { receive(chooseBotPlay(currentBoard, currentPlayer, currentDice)) }
+      try { receive(chooseBotPlay(currentBoard, currentPlayer, currentDice, difficulty)) }
       catch { receive(sequences[0] ?? []) }
     }, 0)
   }
@@ -526,7 +534,7 @@ function requestBotPlay(): void {
       else receive(event.data.play)
     }
     botWorker.onerror = fallback
-    botWorker.postMessage({ id, board: currentBoard, player: currentPlayer, dice: currentDice })
+    botWorker.postMessage({ id, board: currentBoard, player: currentPlayer, dice: currentDice, difficulty })
   } catch { fallback() }
 }
 
@@ -534,12 +542,13 @@ function runBotStep(): void {
   if (!isAutomated() || paused || rulesOpen || botBusy || diceAnimator.isRolling()) return
   if (phase === 'opening') { openingRoll(); return }
   if (phase === 'over') { startGame(); return }
+  const cubeContext = { difficulty: botDifficulty, targetPoints, score, crawford }
   if (phase === 'offer') {
-    activateAction(shouldAcceptDouble(board, opponent(offerer!)) ? 'accept' : 'pass')
+    activateAction(shouldAcceptDouble(board, opponent(offerer!), cubeContext) ? 'accept' : 'pass')
     return
   }
   if (phase === 'roll') {
-    if (canDouble() && shouldOfferDouble(board, player, cubeValue)) activateAction('double')
+    if (canDouble() && shouldOfferDouble(board, player, cubeValue, cubeContext)) activateAction('double')
     else roll()
     return
   }
@@ -574,6 +583,16 @@ app.addEventListener('change', event => {
     if (parsed !== null && !isMatchTarget(parsed)) return
     targetPoints = parsed
     resetSession()
+    return
+  }
+  const difficultySelect = (event.target as HTMLElement).closest<HTMLSelectElement>('[data-difficulty]')
+  if (difficultySelect && isBotDifficulty(difficultySelect.value)) {
+    botDifficulty = difficultySelect.value
+    botPlan = []
+    botRequestId++
+    botBusy = false
+    record(`Сложность бота: ${difficultyLabel(botDifficulty).toLowerCase()}.`)
+    render()
   }
 })
 

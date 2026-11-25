@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyMove, canBearOff, canOfferDouble, initialBoard, isMatchTarget, legalSequences, movesForDie, nextCrawfordState, pipCount, resultKind, resultPoints, sameMove } from './engine.ts'
+import { applyMove, boardKey, canBearOff, canOfferDouble, initialBoard, isMatchTarget, legalSequences, movesForDie, nextCrawfordState, pipCount, resultKind, resultPoints, sameMove, uniqueEndPositions } from './engine.ts'
 import type { Board, Move } from './engine.ts'
 
 const emptyBoard = (): Board => ({ points: Array(24).fill(0), bar: { light: 0, dark: 0 }, off: { light: 0, dark: 0 } })
@@ -153,4 +153,45 @@ test('match targets, Crawford rule transitions and dead cube checks work properl
   assert.equal(canOfferDouble(null, 'light', 2, 5, { light: 3, dark: 2 }, 'none'), false)
   assert.equal(canOfferDouble('dark', 'light', 1, 5, { light: 1, dark: 1 }, 'none'), false)
   assert.equal(canOfferDouble(null, 'light', 1, null, { light: 10, dark: 10 }, 'none'), true)
+})
+
+test('uniqueEndPositions matches the exact terminal board set of legalSequences', () => {
+  const compare = (board: Board, player: 'light' | 'dark', dice: number[]) => {
+    const legal = legalSequences(board, player, dice)
+    const expectedKeys = new Set(
+      legal.map(play => boardKey(play.reduce((pos, move) => applyMove(pos, player, move), board))),
+    )
+    const fast = uniqueEndPositions(board, player, dice)
+    const fastKeys = new Set(fast.map(item => boardKey(item.board)))
+    assert.equal(fast.length, fastKeys.size)
+    assert.deepEqual(fastKeys, expectedKeys)
+    for (const item of fast) {
+      assert.ok(legal.some(seq => seq.length === item.play.length && seq.every((move, idx) => sameMove(move, item.play[idx]))))
+    }
+  }
+
+  compare(initialBoard(), 'light', [1, 5])
+  compare(initialBoard(), 'dark', [3, 3, 3, 3])
+  compare(initialBoard(), 'light', [6, 6, 6, 6])
+
+  const hitBoard = emptyBoard()
+  hitBoard.points[8] = 1
+  hitBoard.points[5] = -1
+  hitBoard.points[2] = -1
+  hitBoard.off.light = 14
+  hitBoard.off.dark = 13
+  compare(hitBoard, 'light', [3, 3, 3, 3])
+
+  const highDieBoard = emptyBoard()
+  highDieBoard.points[0] = 1
+  highDieBoard.off.light = 14
+  compare(highDieBoard, 'light', [1, 2])
+
+  const winBearOff = emptyBoard()
+  winBearOff.points[2] = 1
+  winBearOff.off.light = 14
+  compare(winBearOff, 'light', [2, 5])
+  const fastWin = uniqueEndPositions(winBearOff, 'light', [2, 5])
+  assert.equal(fastWin.length, 1)
+  assert.equal(fastWin[0].play.length, 1)
 })

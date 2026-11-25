@@ -172,7 +172,7 @@ button:disabled{cursor:default}
 @media(max-width:880px){.layout{grid-template-columns:1fr;gap:25px}
 .sidebar{min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:12px 25px}
 .sidebar-top,.sidebar-bottom{grid-column:1/-1}
-.sidebar-controls{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:0}
+.sidebar-controls{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:0}
 .mode-control{display:grid;gap:6px;margin:0}
 .mode-control select{width:100%}
 .players{margin-top:0}

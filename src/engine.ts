@@ -131,6 +131,15 @@ export function sameMove(a: Move, b: Move): boolean {
   return a.from === b.from && a.to === b.to && a.die === b.die
 }
 
+export function boardKey(board: Board): string {
+  return `${board.points.join(',')}|${board.bar.light},${board.bar.dark}|${board.off.light},${board.off.dark}`
+}
+
+export interface EndPosition {
+  board: Board
+  play: Move[]
+}
+
 // Generate complete plays, then keep those that use the maximum possible dice or win immediately.
 // This also enforces the higher-die rule when exactly one of two dice can be played.
 export function legalSequences(board: Board, player: Player, dice: number[]): Move[][] {
@@ -156,6 +165,49 @@ export function legalSequences(board: Board, player: Player, dice: number[]): Mo
     valid = valid.filter(play => play[0].die === Math.max(...dice))
   }
   return valid
+}
+
+// Deduplicated move search for AI: prunes repeated intermediate (board, remaining) states
+// while preserving max-dice, immediate winning bear-off, and higher-die rules.
+export function uniqueEndPositions(board: Board, player: Player, dice: number[]): EndPosition[] {
+  if (dice.length === 0) return []
+  const initialDice = [...dice].sort((a, b) => a - b)
+  const visited = new Set<string>()
+  const terminals: { board: Board; key: string; play: Move[]; won: boolean }[] = []
+
+  const visit = (position: Board, remaining: number[], prefix: Move[]) => {
+    const key = boardKey(position)
+    const stateId = `${key}|${remaining.join(',')}`
+    if (visited.has(stateId)) return
+    visited.add(stateId)
+
+    let extended = false
+    for (const die of new Set(remaining)) {
+      for (const move of movesForDie(position, player, die)) {
+        extended = true
+        const rest = [...remaining]
+        rest.splice(rest.indexOf(die), 1)
+        visit(applyMove(position, player, move), rest, [...prefix, move])
+      }
+    }
+    if (!extended) terminals.push({ board: position, key, play: prefix, won: position.off[player] === 15 })
+  }
+
+  visit(board, initialDice, [])
+  const longest = Math.max(...terminals.map(item => item.play.length))
+  if (longest === 0) return []
+  let valid = terminals.filter(item => item.play.length === longest || item.won)
+  if (dice.length === 2 && dice[0] !== dice[1] && longest === 1 && valid.some(item => item.play[0].die === Math.max(...dice))) {
+    valid = valid.filter(item => item.play[0].die === Math.max(...dice))
+  }
+  const unique = new Map<string, EndPosition>()
+  for (const item of valid) {
+    const existing = unique.get(item.key)
+    if (!existing || item.play.length < existing.play.length) {
+      unique.set(item.key, { board: item.board, play: item.play })
+    }
+  }
+  return [...unique.values()]
 }
 
 export function firstMoves(sequences: Move[][]): Move[] {

@@ -1,0 +1,6 @@
+example.com {
+    redir /nard /nard/ 308
+    handle_path /nard/* {
+        reverse_proxy 127.0.0.1:7000
+    }
+}

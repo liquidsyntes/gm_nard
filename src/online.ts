@@ -63,7 +63,7 @@ let refreshTimer: number | undefined
 let timeoutTimer: number | undefined
 let liveStatus = 'Подключение'
 let refreshPending = false
-let refreshAgain = false
+let queuedRefresh: 'none' | 'game' | 'full' = 'none'
 let seenRollKey: string | null = null
 let flipped = false
 let flipGameId: string | null = null
@@ -353,11 +353,21 @@ function render(): void {
   app.innerHTML = `<div class="shell"><header class="site-header"><div class="brand"><img class="brand-mark" src="${BASE}die-logo.svg" alt="" /><div><strong>NARD</strong><small>ОНЛАЙН-ПАРТИИ</small></div></div><div class="header-right"><span class="mode-pill"><span></span>${escapeHtml(me.name)} · ${liveStatus}</span><button class="text-button" data-action="mute" aria-pressed="${muted}" title="${muted ? 'Включить звук' : 'Выключить звук'}">${muted ? 'Звук выкл' : 'Звук вкл'}</button><a class="text-button" href="${BASE}">Локальная игра ↗</a><button class="text-button" data-action="logout">Выйти</button></div></header><main class="online-main"><nav class="online-nav"><button data-action="lobby" class="${screen !== 'admin' ? 'active' : ''}">Лобби</button>${me.role === 'admin' ? `<button data-action="admin" class="${screen === 'admin' ? 'active' : ''}">Админ-панель</button>` : ''}</nav>${notice ? `<p class="online-notice" role="status">${escapeHtml(notice)}</p>` : ''}${screen === 'game' && game ? gameHtml() : screen === 'admin' ? adminHtml() : lobby ? lobbyHtml() : '<p class="online-empty">Загружаем лобби...</p>'}</main></div>`
 }
 
-async function refresh(): Promise<void> {
+async function refresh(mode: 'full' | 'game' = 'full'): Promise<void> {
   if (!me) return
-  if (refreshPending) { refreshAgain = true; return }
+  if (refreshPending) {
+    if (mode === 'full' || queuedRefresh === 'none') queuedRefresh = mode
+    return
+  }
   refreshPending = true
   try {
+    if (mode === 'game' && screen === 'game' && game && game.phase !== 'over') {
+      const result = await api<{ game: Game; users: User[] }>(`/api/games/${game.id}`)
+      setGame(result.game)
+      gameUsers = result.users
+      render()
+      return
+    }
     const hadLobby = lobby !== null
     const hadActiveGame = lobby?.games.some(item => item.phase !== 'over') ?? false
     const nextLobby = await api<Lobby>('/api/lobby')
@@ -390,7 +400,11 @@ async function refresh(): Promise<void> {
     render()
   } finally {
     refreshPending = false
-    if (refreshAgain) { refreshAgain = false; void refresh() }
+    if (queuedRefresh !== 'none') {
+      const nextMode = queuedRefresh
+      queuedRefresh = 'none'
+      void refresh(nextMode)
+    }
   }
 }
 
@@ -416,7 +430,15 @@ function connectLive(): void {
       }
     })
   }
-  live.addEventListener('refresh', () => { void refresh() })
+  live.addEventListener('refresh', event => {
+    let payload: { scope?: string; gameId?: string } = {}
+    try { payload = JSON.parse((event as MessageEvent<string>).data || '{}') } catch {}
+    if (payload.scope === 'game') {
+      if (screen === 'game' && game && (!payload.gameId || payload.gameId === game.id)) void refresh('game')
+      return
+    }
+    void refresh('full')
+  })
 }
 
 async function openGame(id: string, animateInitial = false): Promise<void> {

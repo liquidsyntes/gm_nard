@@ -22,8 +22,26 @@ test('admin tokens, online invitation and server-validated moves survive restart
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const base = `http://127.0.0.1:${server.address().port}`
   const streams = []
-  const call = async (path, cookie, body, method = 'POST') => fetch(`${base}${path}`, {
-    method, headers: { ...(cookie ? { Cookie: cookie } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}) },
+  const makeSseCollector = stream => {
+    const reader = stream.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ''
+    const pump = (async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
+        }
+      } catch {}
+    })()
+    return {
+      take() { const out = buffer; buffer = ''; return out },
+      cancel() { return reader.cancel().then(() => pump) },
+    }
+  }
+  const call = async (path, cookie, body, method = 'POST', extraHeaders = {}) => fetch(`${base}${path}`, {
+    method, headers: { ...(cookie ? { Cookie: cookie } : {}), ...(body ? { 'Content-Type': 'application/json' } : {}), ...extraHeaders },
     ...(body ? { body: JSON.stringify(body) } : {}),
   })
   const login = async token => {
@@ -40,23 +58,31 @@ test('admin tokens, online invitation and server-validated moves survive restart
     const adminCookie = await login(adminToken)
     const aliceCreated = await call('/api/admin/users', adminCookie, { name: 'Алиса' })
     const bobCreated = await call('/api/admin/users', adminCookie, { name: 'Борис' })
+    const victorCreated = await call('/api/admin/users', adminCookie, { name: 'Виктор' })
     assert.equal(aliceCreated.status, 201)
     assert.equal(bobCreated.status, 201)
+    assert.equal(victorCreated.status, 201)
     const alice = await aliceCreated.json()
     const bob = await bobCreated.json()
+    const victor = await victorCreated.json()
     const stateText = await readFile(join(directory, 'data', 'state.json'), 'utf8')
     assert.equal(stateText.includes(alice.token), false)
     assert.equal(stateText.includes(bob.token), false)
 
     const aliceCookie = await login(alice.token)
     const bobCookie = await login(bob.token)
+    const victorCookie = await login(victor.token)
     const cookieFor = (gameObj, side, curBobCookie = bobCookie) => gameObj.players[side] === alice.user.id ? aliceCookie : curBobCookie
     assert.equal((await call('/api/admin/users', aliceCookie, null, 'GET')).status, 403)
-    for (const cookie of [aliceCookie, bobCookie]) {
-      const stream = await call('/api/live', cookie, null, 'GET')
-      assert.equal(stream.status, 200)
-      streams.push(stream)
-    }
+    const aliceStream = await call('/api/live', aliceCookie, null, 'GET')
+    const bobStream = await call('/api/live', bobCookie, null, 'GET')
+    const victorStream = await call('/api/live', victorCookie, null, 'GET')
+    assert.equal(aliceStream.status, 200)
+    assert.equal(bobStream.status, 200)
+    assert.equal(victorStream.status, 200)
+    const aliceSseStream = makeSseCollector(aliceStream)
+    const victorSseStream = makeSseCollector(victorStream)
+    streams.push(aliceSseStream, bobStream.body, victorSseStream)
     const lobby = await (await call('/api/lobby', aliceCookie, null, 'GET')).json()
     assert.ok(lobby.online.some(user => user.id === bob.user.id))
 
@@ -85,6 +111,10 @@ test('admin tokens, online invitation and server-validated moves survive restart
     const waitingCookie = cookieFor(game, game.turn === 'light' ? 'dark' : 'light')
     const waitingMove = await call(`/api/games/${gameId}/move`, waitingCookie, { ...game.legalMoves[0], version: game.version })
     assert.equal(waitingMove.status, 409)
+    // Drain initial SSE presence messages, then verify targeted game refresh only wakes participants (not Victor)
+    await new Promise(resolve => setTimeout(resolve, 40))
+    aliceSseStream.take()
+    victorSseStream.take()
     const activeGame = (await (await call(`/api/games/${gameId}`, activeCookie, null, 'GET')).json()).game
     const move = activeGame.legalMoves[0]
     const moved = await call(`/api/games/${gameId}/move`, activeCookie, { ...move, version: activeGame.version })
@@ -94,6 +124,11 @@ test('admin tokens, online invitation and server-validated moves survive restart
     assert.equal(movedBody.game.lastTurn.player, activeGame.turn)
     assert.equal(movedBody.game.lastTurn.rollId, activeGame.lastRoll.id)
     assert.deepEqual(movedBody.game.lastTurn.moves, [move])
+    await new Promise(resolve => setTimeout(resolve, 60))
+    const aliceSse = aliceSseStream.take()
+    const victorSse = victorSseStream.take()
+    assert.equal(aliceSse.includes('"scope":"game"'), true)
+    assert.equal(victorSse.includes('"scope":"game"'), false)
     assert.equal((await call(`/api/games/${gameId}/move`, activeCookie, { ...move, version: activeGame.version })).status, 409)
     const reopened = await createStore()
     assert.ok(reopened.read().games.some(saved => saved.id === gameId && saved.version > game.version))
@@ -212,8 +247,9 @@ test('admin tokens, online invitation and server-validated moves survive restart
     assert.equal(finishedView.opponentOnline, true)
     assert.equal((await call(`/api/invites/${rematchInvite.invite.id}/cancel`, aliceCookie, {})).status, 200)
 
-    // Timeout claim test (set GAME_INACTIVITY_MINUTES to ~60ms)
+    // Timeout claim + GAME_MAX_HISTORY pruning with archivedStats preservation
     process.env.GAME_INACTIVITY_MINUTES = '0.001'
+    process.env.GAME_MAX_HISTORY = '2'
     const timeoutInvite = await (await call('/api/invites', aliceCookie, { to: bob.user.id })).json()
     const timeoutId = (await (await call(`/api/invites/${timeoutInvite.invite.id}/accept`, bobCookie, {})).json()).gameId
     const timeoutGame = (await (await call(`/api/games/${timeoutId}`, aliceCookie, null, 'GET')).json()).game
@@ -228,6 +264,23 @@ test('admin tokens, online invitation and server-validated moves survive restart
     assert.equal(claimedGame.result.kind, 'timeout')
     delete process.env.GAME_INACTIVITY_MINUTES
 
+    const prunedStore = await createStore()
+    const storedAfterPrune = prunedStore.read()
+    assert.equal(storedAfterPrune.games.filter(g => g.phase === 'over').length <= 2, true)
+    assert.equal(Boolean(storedAfterPrune.archivedStats?.[alice.user.id]), true)
+    const afterPruneLobby = await (await call('/api/lobby', aliceCookie, null, 'GET')).json()
+    assert.equal(afterPruneLobby.stats.played, 3)
+
+    // Proxy-aware login rate limit by X-Forwarded-For
+    for (let attempt = 0; attempt < 20; attempt++) {
+      const failed = await call('/api/auth/login', null, { token: 'wrong' }, 'POST', { 'X-Forwarded-For': '203.0.113.10' })
+      assert.equal(failed.status, 401)
+    }
+    const throttled = await call('/api/auth/login', null, { token: 'wrong' }, 'POST', { 'X-Forwarded-For': '203.0.113.10' })
+    assert.equal(throttled.status, 429)
+    const otherIpLogin = await call('/api/auth/login', null, { token: adminToken }, 'POST', { 'X-Forwarded-For': '198.51.100.7' })
+    assert.equal(otherIpLogin.status, 200)
+
     // Rotate token and disable account forfeit
     const rotated = await call(`/api/admin/users/${bob.user.id}/rotate`, adminCookie, {})
     assert.equal(rotated.status, 200)
@@ -236,8 +289,8 @@ test('admin tokens, online invitation and server-validated moves survive restart
     assert.equal((await call('/api/auth/login', null, { token: bob.token })).status, 401)
     const freshBobCookie = await login(replacement.token)
     assert.ok(freshBobCookie.startsWith('nard_session='))
-    const freshStream = await call('/api/live', freshBobCookie, null, 'GET')
-    streams.push(freshStream)
+    const freshBobStream = await call('/api/live', freshBobCookie, null, 'GET')
+    streams.push(freshBobStream.body)
     const thirdInvite = await call('/api/invites', aliceCookie, { to: bob.user.id })
     assert.equal(thirdInvite.status, 201)
     const thirdInviteId = (await thirdInvite.json()).invite.id
@@ -251,7 +304,9 @@ test('admin tokens, online invitation and server-validated moves survive restart
     assert.equal((await call('/api/auth/login', null, { token: replacement.token })).status, 401)
   } finally {
     delete process.env.GAME_INACTIVITY_MINUTES
-    for (const stream of streams) await stream.body.cancel()
+    delete process.env.GAME_MAX_HISTORY
+    delete process.env.TRUST_PROXY
+    for (const stream of streams) await stream.cancel()
     await new Promise(resolve => server.close(resolve))
     await rm(directory, { recursive: true, force: true })
   }

@@ -32,7 +32,7 @@ sudo -u nard env GAME_DATA_DIR=/var/lib/nard node server/admin-cli.mjs create Ad
 
 ## 3. Запустить Node через systemd
 
-Возьмите [пример службы](../deploy/nard.service.example), замените `nard.example.com`, `/opt/nard` и путь к исполняемому файлу `node` на фактические значения. `PUBLIC_ORIGIN` должен совпадать с внешним HTTPS-адресом сайта без пути. В режиме `NODE_ENV=production` запуск без `PUBLIC_ORIGIN` запрещён.
+Возьмите [пример службы](../deploy/nard.service.example), замените `nard.example.com`, `/opt/nard` и путь к исполняемому файлу `node` на фактические значения. `PUBLIC_ORIGIN` должен совпадать с внешним HTTPS-адресом сайта без пути. В режиме `NODE_ENV=production` запуск без `PUBLIC_ORIGIN` запрещён. Если игра размещается под подпутём (например, `/nard/`), соберите с `VITE_BASE=/nard/` и задайте `BASE_PATH=/nard/` (либо снимайте префикс в прокси, как в [Caddyfile.subpath.example](../deploy/Caddyfile.subpath.example)).
 
 ```bash
 sudo cp deploy/nard.service.example /etc/systemd/system/nard.service

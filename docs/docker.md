@@ -38,7 +38,12 @@ Compose создаёт volumes `gm_nard_nard_data` и `gm_nard_nard_logs`. Пе�
 NARD_PUBLIC_ORIGIN=https://nard.example.com
 ```
 
-Замените домен на свой, затем выполните `docker compose up -d --build nard`. Пример блока прокси: [Caddyfile.docker.example](../deploy/Caddyfile.docker.example). Caddy принимает HTTPS и пересылает запросы на `127.0.0.1:7000`. Сервер внутри контейнера слушает `0.0.0.0:4173`, но Compose не публикует этот адрес наружу: с хоста доступен только loopback-порт 7000. Для выпуска сертификата нужны корректный DNS и доступные снаружи порты 80/443. Подробности: [документация Caddy по HTTPS](https://caddyserver.com/docs/automatic-https).
+Замените домен на свой, затем выполните `docker compose up -d --build nard`. Пример блока прокси: [Caddyfile.docker.example](../deploy/Caddyfile.docker.example) (или [Caddyfile.subpath.example](../deploy/Caddyfile.subpath.example) при размещении под подпутём с `NARD_BASE=/nard/`). Caddy принимает HTTPS и пересылает запросы на `127.0.0.1:7000`. Сервер внутри контейнера слушает `0.0.0.0:4173`, но Compose не публикует этот адрес наружу: с хоста доступен только loopback-порт 7000. Для выпуска сертификата нужны корректный DNS и доступные снаружи порты 80/443. Подробности: [документация Caddy по HTTPS](https://caddyserver.com/docs/automatic-https).
+
+Дополнительные необязательные переменные окружения сервиса:
+- `TRUST_PROXY=1` — учитывать заголовок `X-Forwarded-For` при лимите попыток входа (для loopback включено автоматически);
+- `GAME_MAX_HISTORY=200` — сколько завершённых партий хранить в `state.json` (статистика более старых партий переносится в `archivedStats`);
+- `GAME_INACTIVITY_MINUTES=5` — время до возможности завершить зависшую партию по таймауту.
 
 После запуска проверьте `docker compose ps`, `curl -f http://127.0.0.1:7000/api/health`, вход по `https://nard.example.com/online.html` и приглашение между двумя аккаунтами. Токены вводятся только на HTTPS-странице. При смене `NARD_PUBLIC_ORIGIN` контейнер нужно пересоздать командой `docker compose up -d nard`.
 

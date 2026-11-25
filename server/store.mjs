@@ -6,6 +6,19 @@ import { fileURLToPath } from 'node:url'
 const defaultDirectory = fileURLToPath(new URL('../data/', import.meta.url))
 const directory = process.env.GAME_DATA_DIR || defaultDirectory
 const path = join(directory, 'state.json')
+const retryCodes = new Set(['EPERM', 'EBUSY', 'EACCES'])
+
+async function renameWithRetry(from, to) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      await rename(from, to)
+      return
+    } catch (error) {
+      if (attempt === 3 || !retryCodes.has(error?.code)) throw error
+      await new Promise(resolve => setTimeout(resolve, 20 * (attempt + 1)))
+    }
+  }
+}
 
 export async function createStore() {
   await mkdir(directory, { recursive: true, mode: 0o700 })
@@ -13,7 +26,7 @@ export async function createStore() {
   try { state = JSON.parse(await readFile(path, 'utf8')) }
   catch (error) {
     if (error.code !== 'ENOENT') throw error
-    state = { version: 1, users: [], sessions: [], invites: [], games: [] }
+    state = { version: 1, users: [], sessions: [], invites: [], games: [], archivedStats: {} }
     await writeFile(path, JSON.stringify(state, null, 2), { mode: 0o600 })
   }
   if (state.version !== 1 || !Array.isArray(state.users) || !Array.isArray(state.sessions) || !Array.isArray(state.invites) || !Array.isArray(state.games)) {
@@ -28,7 +41,7 @@ export async function createStore() {
       const result = operation(draft)
       const temporary = join(directory, `.state-${randomBytes(8).toString('hex')}.tmp`)
       await writeFile(temporary, JSON.stringify(draft, null, 2), { mode: 0o600 })
-      await rename(temporary, path)
+      await renameWithRetry(temporary, path)
       state = draft
       return result
     })

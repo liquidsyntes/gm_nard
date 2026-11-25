@@ -17,6 +17,7 @@ const playerColor = (game, userId) => game.players.light === userId ? 'light' : 
 const gameFor = (state, userId) => state.games.some(game => game.phase !== 'over' && playerColor(game, userId))
 const now = () => new Date().toISOString()
 const loopbackHosts = ['127.0.0.1', 'localhost', '[::1]']
+const loopbackIps = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1'])
 const guestFileLogsAllowed = !publicOrigin || loopbackHosts.includes(new URL(publicOrigin).hostname)
 const colorModes = new Set(['random', 'light', 'dark'])
 const gameScore = game => game.score ? { light: game.score.light, dark: game.score.dark } : { light: 0, dark: 0 }
@@ -28,6 +29,11 @@ function inactivityTimeoutMs() {
   const raw = Number(process.env.GAME_INACTIVITY_MINUTES)
   const minutes = Number.isFinite(raw) && raw > 0 ? raw : 5
   return minutes * 60_000
+}
+
+function maxFinishedGames() {
+  const raw = Number(process.env.GAME_MAX_HISTORY)
+  return Number.isInteger(raw) && raw >= 1 ? raw : 200
 }
 
 function waitingPlayer(game) {
@@ -84,6 +90,30 @@ function originAllowed(request) {
   } catch { return false }
 }
 
+function clientIp(request) {
+  const remote = request.socket.remoteAddress || 'unknown'
+  const trustProxy = process.env.TRUST_PROXY === '1' || loopbackIps.has(remote)
+  if (trustProxy) {
+    const forwarded = request.headers['x-forwarded-for']
+    const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded
+    const first = raw?.split(',')[0]?.trim()
+    if (first) return first
+  }
+  return remote
+}
+
+function pruneTimestamps(map, key, cutoff) {
+  const recent = (map.get(key) || []).filter(time => time > cutoff)
+  if (recent.length) map.set(key, recent)
+  else map.delete(key)
+  return recent
+}
+
+function sweepStaleAttempts(map, cutoff) {
+  if (map.size <= 1000) return
+  for (const key of map.keys()) pruneTimestamps(map, key, cutoff)
+}
+
 function currentUser(state, request) {
   const token = cookieToken(request)
   if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return null
@@ -108,34 +138,74 @@ function event(game, kind, text) {
   return entry
 }
 
-function computeStats(state, userId) {
-  let played = 0
-  let wins = 0
-  let losses = 0
-  let pointsFor = 0
-  let pointsAgainst = 0
-  const headToHead = {}
-  for (const game of state.games) {
-    if (game.phase !== 'over' || !game.result) continue
-    const color = playerColor(game, userId)
-    if (!color) continue
-    const oppColor = opponent(color)
-    const oppId = game.players[oppColor]
-    const won = game.result.winner === color
-    const myPoints = game.score ? game.score[color] : (won ? game.result.points : 0)
-    const oppPoints = game.score ? game.score[oppColor] : (won ? 0 : game.result.points)
-    played++
-    if (won) wins++
-    else losses++
-    pointsFor += myPoints
-    pointsAgainst += oppPoints
-    const record = headToHead[oppId] ?? (headToHead[oppId] = { wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0 })
-    if (won) record.wins++
-    else record.losses++
-    record.pointsFor += myPoints
-    record.pointsAgainst += oppPoints
+function emptyStats() {
+  return { played: 0, wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0, headToHead: {} }
+}
+
+function applyFinishedGameToStats(stats, userId, game) {
+  if (game.phase !== 'over' || !game.result) return
+  const color = playerColor(game, userId)
+  if (!color) return
+  const oppColor = opponent(color)
+  const oppId = game.players[oppColor]
+  const won = game.result.winner === color
+  const myPoints = game.score ? game.score[color] : (won ? game.result.points : 0)
+  const oppPoints = game.score ? game.score[oppColor] : (won ? 0 : game.result.points)
+  stats.played++
+  if (won) stats.wins++
+  else stats.losses++
+  stats.pointsFor += myPoints
+  stats.pointsAgainst += oppPoints
+  const record = stats.headToHead[oppId] ?? (stats.headToHead[oppId] = { wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0 })
+  if (won) record.wins++
+  else record.losses++
+  record.pointsFor += myPoints
+  record.pointsAgainst += oppPoints
+}
+
+function accumulateArchivedGame(state, game) {
+  if (game.phase !== 'over' || !game.result) return
+  state.archivedStats ??= {}
+  for (const userId of new Set([game.players.light, game.players.dark])) {
+    const entry = state.archivedStats[userId] ?? (state.archivedStats[userId] = emptyStats())
+    entry.headToHead ??= {}
+    applyFinishedGameToStats(entry, userId, game)
   }
-  return { played, wins, losses, pointsFor, pointsAgainst, headToHead }
+}
+
+function pruneState(state) {
+  const nowMs = Date.now()
+  state.sessions = state.sessions.filter(item => Date.parse(item.expiresAt) > nowMs)
+
+  const activePending = []
+  const recentArchivedInvites = []
+  for (const invite of state.invites) {
+    if (invite.status === 'pending' && Date.parse(invite.expiresAt) > nowMs) activePending.push(invite)
+    else if (nowMs - Date.parse(invite.createdAt) <= 86_400_000) recentArchivedInvites.push(invite)
+  }
+  state.invites = [...recentArchivedInvites.slice(-200), ...activePending]
+
+  const limit = maxFinishedGames()
+  let finishedCount = state.games.filter(game => game.phase === 'over').length
+  if (finishedCount > limit) {
+    const kept = []
+    for (const game of state.games) {
+      if (game.phase === 'over' && finishedCount > limit) {
+        accumulateArchivedGame(state, game)
+        finishedCount--
+      } else {
+        kept.push(game)
+      }
+    }
+    state.games = kept
+  }
+}
+
+function computeStats(state, userId) {
+  const base = state.archivedStats?.[userId] ? structuredClone(state.archivedStats[userId]) : emptyStats()
+  base.headToHead ??= {}
+  for (const game of state.games) applyFinishedGameToStats(base, userId, game)
+  return base
 }
 
 function visibleGame(game, userId, state, live) {
@@ -266,10 +336,22 @@ export async function createMultiplayerApi() {
   const store = await createStore()
   const live = new Map()
   const loginAttempts = new Map()
+  const loginRequests = new Map()
 
-  const broadcast = () => {
+  const sendRefresh = (userIds, payload) => {
+    const message = `event: refresh\ndata: ${JSON.stringify(payload)}\n\n`
+    for (const userId of new Set(userIds)) {
+      const clients = live.get(userId)
+      if (!clients) continue
+      for (const response of clients) {
+        try { response.write(message) } catch { clients.delete(response) }
+      }
+    }
+  }
+  const broadcastAll = (payload = { scope: 'lobby' }) => {
+    const message = `event: refresh\ndata: ${JSON.stringify(payload)}\n\n`
     for (const clients of live.values()) for (const response of clients) {
-      try { response.write('event: refresh\ndata: {}\n\n') } catch { clients.delete(response) }
+      try { response.write(message) } catch { clients.delete(response) }
     }
   }
   const dropConnections = userId => {
@@ -294,19 +376,29 @@ export async function createMultiplayerApi() {
       if (pathname === '/api/health' && request.method === 'GET') { send(response, 200, { ok: true }); return }
 
       if (pathname === '/api/auth/login' && request.method === 'POST') {
-        const ip = request.socket.remoteAddress || 'unknown'
-        const recent = (loginAttempts.get(ip) || []).filter(time => time > Date.now() - 60_000)
-        if (recent.length >= 30) fail(429, 'Слишком много попыток входа')
-        recent.push(Date.now())
-        loginAttempts.set(ip, recent)
+        const ip = clientIp(request)
+        const nowMs = Date.now()
+        const cutoff = nowMs - 60_000
+        sweepStaleAttempts(loginAttempts, cutoff)
+        sweepStaleAttempts(loginRequests, cutoff)
+        const failures = pruneTimestamps(loginAttempts, ip, cutoff)
+        const requests = pruneTimestamps(loginRequests, ip, cutoff)
+        if (failures.length >= 20 || requests.length >= 60) fail(429, 'Слишком много попыток входа')
+        requests.push(nowMs)
+        loginRequests.set(ip, requests)
+
         const body = await bodyJson(request)
         const state = store.read()
         const user = state.users.find(item => !item.disabled && tokenMatches(body.token, item.tokenHash))
-        if (!user) fail(401, 'Неверный токен')
+        if (!user) {
+          failures.push(nowMs)
+          loginAttempts.set(ip, failures)
+          fail(401, 'Неверный токен')
+        }
         const token = newSessionToken()
         await store.transact(draft => {
-          draft.sessions = draft.sessions.filter(item => Date.parse(item.expiresAt) > Date.now())
           draft.sessions.push({ hash: tokenHash(token), userId: user.id, expiresAt: new Date(Date.now() + SESSION_DAYS * 86400_000).toISOString() })
+          pruneState(draft)
         })
         send(response, 200, { user: publicUser(user) }, { 'Set-Cookie': sessionCookie(token) })
         return
@@ -332,7 +424,7 @@ export async function createMultiplayerApi() {
         response.write('event: ready\ndata: {}\n\n')
         if (!live.has(user.id)) live.set(user.id, new Set())
         live.get(user.id).add(response)
-        broadcast()
+        broadcastAll({ scope: 'lobby' })
         const heartbeat = setInterval(() => {
           if (!currentUser(store.read(), request)) response.end()
           else response.write(': ping\n\n')
@@ -341,7 +433,7 @@ export async function createMultiplayerApi() {
           clearInterval(heartbeat)
           live.get(user.id)?.delete(response)
           if (live.get(user.id)?.size === 0) live.delete(user.id)
-          broadcast()
+          broadcastAll({ scope: 'lobby' })
         })
         return
       }
@@ -396,7 +488,7 @@ export async function createMultiplayerApi() {
           return publicUser(account)
         })
         send(response, 201, { user: created, token })
-        broadcast()
+        broadcastAll({ scope: 'lobby' })
         return
       }
       const adminAction = pathname.match(/^\/api\/admin\/users\/([a-f0-9]{32})\/(rotate|toggle)$/)
@@ -421,12 +513,16 @@ export async function createMultiplayerApi() {
             game.result = { winner: opponent(color), kind: 'forfeit', points: game.cubeValue }
             ended.push({ game, entry: event(game, 'result', `Аккаунт «${account.name}» отключён администратором. Партия завершена.`) })
           }
+          pruneState(state)
           return { account: publicUser(account), ended }
         })
         for (const item of changed.ended) await writeEvents(item.game, [item.entry])
         send(response, 200, { user: changed.account, ...(token ? { token } : {}) })
         if (token || changed.account.disabled) dropConnections(changed.account.id)
-        broadcast()
+        for (const item of changed.ended) {
+          sendRefresh([item.game.players.light, item.game.players.dark], { scope: 'all', gameId: item.game.id })
+        }
+        broadcastAll({ scope: 'lobby' })
         return
       }
 
@@ -447,10 +543,11 @@ export async function createMultiplayerApi() {
           if (state.invites.some(item => item.status === 'pending' && item.from === user.id && item.to === target && Date.parse(item.expiresAt) > Date.now())) fail(409, 'Приглашение уже отправлено')
           const created = { id: newId(), from: user.id, to: target, targetPoints, colorMode, status: 'pending', createdAt: now(), expiresAt: new Date(Date.now() + 5 * 60_000).toISOString() }
           state.invites.push(created)
+          pruneState(state)
           return created
         })
         send(response, 201, { invite: { id: invite.id, targetPoints: invite.targetPoints, colorMode: invite.colorMode, expiresAt: invite.expiresAt } })
-        broadcast()
+        sendRefresh([user.id, target], { scope: 'lobby' })
         return
       }
       const inviteAction = pathname.match(/^\/api\/invites\/([a-f0-9]{32})\/(accept|decline|cancel)$/)
@@ -462,22 +559,32 @@ export async function createMultiplayerApi() {
             const invite = state.invites.find(item => item.id === inviteAction[1] && item.from === user.id)
             if (!invite || invite.status !== 'pending' || Date.parse(invite.expiresAt) <= Date.now()) fail(409, 'Приглашение недоступно')
             invite.status = 'cancelled'
-            return { game: null }
+            pruneState(state)
+            return { game: null, from: invite.from, to: invite.to }
           }
           const invite = state.invites.find(item => item.id === inviteAction[1] && item.to === user.id)
           if (!invite || invite.status !== 'pending' || Date.parse(invite.expiresAt) <= Date.now()) fail(409, 'Приглашение недоступно')
-          if (action === 'decline') { invite.status = 'declined'; return { game: null } }
+          if (action === 'decline') {
+            invite.status = 'declined'
+            pruneState(state)
+            return { game: null, from: invite.from, to: invite.to }
+          }
           if (!live.has(invite.from) || !state.users.some(item => item.id === invite.from && !item.disabled)) fail(409, 'Отправитель уже не в сети')
           if (gameFor(state, invite.from) || gameFor(state, invite.to)) fail(409, 'Один из игроков уже в партии')
           const game = startGame(invite.from, invite.to, { targetPoints: invite.targetPoints ?? null, colorMode: invite.colorMode ?? 'random' })
           state.games.push(game)
           invite.status = 'accepted'
           invite.gameId = game.id
-          return { game }
+          pruneState(state)
+          return { game, from: invite.from, to: invite.to }
         })
         const fileLogged = result.game ? await writeEvents(result.game, result.game.events) : true
         send(response, 200, action === 'cancel' ? { ok: true } : { gameId: result.game?.id ?? null, fileLogged })
-        broadcast()
+        if (result.game) {
+          sendRefresh([result.game.players.light, result.game.players.dark], { scope: 'all', gameId: result.game.id })
+        } else {
+          sendRefresh([result.from, result.to], { scope: 'lobby' })
+        }
         return
       }
 
@@ -612,11 +719,17 @@ export async function createMultiplayerApi() {
             game.result = { winner: color, kind: 'timeout', points: game.cubeValue }
             add('result', `${waiter === 'light' ? 'Светлые' : 'Тёмные'} не сделали ход вовремя. Победа по таймауту.`)
           } else fail(404, 'Действие не найдено')
-          return { game, entries, snapshot: state }
+          const view = visibleGame(game, user.id, state, live)
+          const players = [game.players.light, game.players.dark]
+          const gameId = game.id
+          const phase = game.phase
+          const gameNumber = game.gameNumber ?? 1
+          pruneState(state)
+          return { gameId, gameNumber, players, phase, view, entries }
         })
-        const fileLogged = await writeEvents(change.game, change.entries)
-        send(response, 200, { game: visibleGame(change.game, user.id, change.snapshot, live), fileLogged })
-        broadcast()
+        const fileLogged = await writeEvents({ id: change.gameId, gameNumber: change.gameNumber }, change.entries)
+        send(response, 200, { game: change.view, fileLogged })
+        sendRefresh(change.players, { scope: change.phase === 'over' ? 'all' : 'game', gameId: change.gameId })
         return
       }
       fail(404, 'Адрес не найден')

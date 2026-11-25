@@ -8,6 +8,10 @@ import { publicOrigin } from './server/auth.mjs'
 const projectDirectory = fileURLToPath(new URL('.', import.meta.url))
 const staticDirectory = resolve(projectDirectory, 'dist')
 if (process.env.NODE_ENV === 'production' && !publicOrigin) throw new Error('PUBLIC_ORIGIN is required in production')
+const rawBase = process.env.BASE_PATH || process.env.VITE_BASE || '/'
+const trimmedBase = rawBase.replace(/\/+$/, '')
+const basePath = !trimmedBase || trimmedBase === '/' ? '' : (trimmedBase.startsWith('/') ? trimmedBase : `/${trimmedBase}`)
+
 const api = await createMultiplayerApi()
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -23,9 +27,24 @@ const server = createServer(async (request, response) => {
   response.setHeader('Referrer-Policy', 'no-referrer')
   response.setHeader('X-Frame-Options', 'DENY')
   response.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; worker-src 'self'; frame-ancestors 'none'")
+  let parsedUrl
   let pathname
-  try { pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname) }
-  catch { response.writeHead(400).end(); return }
+  try {
+    parsedUrl = new URL(request.url, 'http://localhost')
+    pathname = decodeURIComponent(parsedUrl.pathname)
+  } catch { response.writeHead(400).end(); return }
+
+  if (pathname === '/api/health') { await api(request, response); return }
+  if (basePath) {
+    if (pathname === basePath && (request.method === 'GET' || request.method === 'HEAD')) {
+      response.writeHead(308, { Location: `${basePath}/` }).end()
+      return
+    }
+    if (pathname.startsWith(`${basePath}/`)) {
+      pathname = pathname.slice(basePath.length)
+      request.url = `${pathname}${parsedUrl.search}`
+    }
+  }
   if (pathname.startsWith('/api/')) { await api(request, response); return }
   if (request.method !== 'GET' && request.method !== 'HEAD') { response.writeHead(405).end(); return }
 
@@ -44,4 +63,4 @@ const server = createServer(async (request, response) => {
 
 const port = Number(process.env.PORT || 4173)
 const host = process.env.GAME_BIND_HOST || '127.0.0.1'
-server.listen(port, host, () => console.log(`NARD: http://${host}:${port}/`))
+server.listen(port, host, () => console.log(`NARD: http://${host}:${port}${basePath}/`))

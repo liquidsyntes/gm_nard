@@ -86,6 +86,7 @@ button:disabled{cursor:default}
 .off-target.possible:after{width:7px;height:7px;left:auto;right:3px;top:50%}
 .target-icon{font-size:18px;line-height:1}
 .footer-arrow{color:#bad3a6;margin-left:8px}
+.mobile-turn-bar{display:none}
 .sidebar{min-height:655px;background:#19272b;border:1px solid #304146;border-radius:13px;padding:25px;display:flex;flex-direction:column;box-shadow:0 14px 38px #09121535}
 .sidebar-top{display:flex;justify-content:space-between;align-items:center}
 .sidebar-top .eyebrow{color:#90a6a1}
@@ -170,6 +171,20 @@ button:disabled{cursor:default}
 }
 
 @media(max-width:880px){.layout{grid-template-columns:1fr;gap:25px}
+.mobile-turn-bar{display:grid;gap:10px;margin-top:14px;padding:14px 16px;background:#19272b;border:1px solid #304146;border-radius:11px;box-shadow:0 10px 26px #09121535}
+.mobile-turn-head{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px}
+.mobile-turn-who{display:flex;align-items:center;gap:8px;min-width:0;font-weight:700;color:#edf0e8}
+.mobile-turn-dot{width:10px;height:10px;border-radius:50%;flex:none;border:1.5px solid #798e84}
+.mobile-turn-dot.light{background:#e9eadf}
+.mobile-turn-dot.dark{background:#2c3b41}
+.mobile-turn-meta{color:#9ab5a4;font-size:11px;font-weight:700;white-space:nowrap}
+.mobile-turn-bar .actions{margin-top:0;padding-top:0;display:flex;flex-wrap:wrap;gap:8px}
+.mobile-turn-bar .actions>button{flex:1 1 140px;min-height:44px}
+.mobile-turn-bar .actions>.action-hint{flex:1 1 100%;margin:0}
+.mobile-turn-bar .offer-actions{display:flex;flex:1 1 100%;gap:8px}
+.mobile-turn-bar .offer-actions>button{flex:1 1 120px;min-height:44px}
+.mobile-turn-bar .move-options{border-top:0;padding-top:0;padding-bottom:0!important;max-height:140px}
+.sidebar>.actions,.sidebar>.move-options{display:none}
 .sidebar{min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:12px 25px}
 .sidebar-top,.sidebar-bottom{grid-column:1/-1}
 .sidebar-controls{grid-column:1/-1;display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:0}
@@ -177,30 +192,28 @@ button:disabled{cursor:default}
 .mode-control select{width:100%}
 .players{margin-top:0}
 .turn-panel{margin-top:0}
-.dice-panel{grid-column:1}
-.move-options{grid-column:2;grid-row:4}
-.actions{grid-column:2;grid-row:4;align-self:end}
-.move-options:has(+ .actions){padding-bottom:85px}
-.activity-panel{grid-column:1/-1;grid-row:5;margin-top:0}
-.sidebar-bottom{grid-row:6;margin-top:0}
+.dice-panel{grid-column:2}
+.activity-panel{grid-column:1/-1;grid-row:auto;margin-top:0}
+.sidebar-bottom{grid-row:auto;margin-top:0}
 .board-surface{height:clamp(440px,58vw,600px)}
 .checker{width:min(6vw,47px);height:min(6vw,47px);margin-bottom:-16px}
 .bottom .checker{margin-top:-16px}
 }
 
 @media(max-width:600px){.shell{padding:0 14px}
-.site-header{height:72px}
+.site-header{height:56px}
 .brand-mark{width:40px;height:40px}
 .brand strong{font-size:15px}
 .brand small{font-size:7px}
 .header-right{gap:12px}
 .header-right .text-button{font-size:11px}
 .mode-pill{display:none}
-.layout{padding-top:24px}
-.board-head{margin-bottom:18px}
+.layout{padding-top:12px;gap:18px}
+.board-head{margin-bottom:8px}
+.board-head .hero-title{display:none}
 .board-head h1{font-size:29px}
 .board-frame{padding:8px;border-radius:9px}
-.board-surface{height:440px}
+.board-surface{height:clamp(330px,51vh,420px)}
 .triangle{inset:0 1px 14%}
 .point.bottom .triangle{inset:14% 1px 0}
 .point-number{font-size:8px}
@@ -219,10 +232,13 @@ button:disabled{cursor:default}
 .bar-group.light{bottom:-26px}
 .board-surface.flipped .bar-group.dark{top:auto;bottom:-26px}
 .board-surface.flipped .bar-group.light{bottom:auto;top:-26px}
-.board-footer{font-size:9px;flex-wrap:wrap;gap:10px}
+.board-footer{margin-top:10px;font-size:9px;flex-wrap:nowrap;gap:8px}
 .board-footer-meta{gap:8px}
+.board-direction-hint{display:none}
 .board-tool-button{padding:6px 9px;min-height:30px;font-size:9px}
 .off-target{font-size:8px}
+.mobile-turn-bar{margin-top:10px;padding:10px 12px;gap:8px}
+.mobile-turn-bar .primary-button,.mobile-turn-bar .secondary-button{min-height:42px;font-size:11px;padding:0 12px}
 .sidebar{display:flex;gap:0;padding:20px;min-height:0}
 .sidebar-controls{display:grid;grid-template-columns:1fr;gap:12px;margin-top:18px}
 .mode-control{display:grid;gap:8px;margin-top:0}

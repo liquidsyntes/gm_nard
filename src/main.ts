@@ -250,6 +250,19 @@ function logHtml(): string {
   return `<section class="activity-panel" aria-label="Журнал игры"><div class="activity-head"><span class="eyebrow">ЖУРНАЛ ИГРЫ</span><span>ЗАПИСИ · ${logEntries.length}</span></div><div class="file-log-status" data-file-log-status data-state="${fileStatus()}">${fileStatusText()}</div><ol class="activity-list" aria-live="off">${[...logEntries].reverse().map(entry => `<li class="activity-item ${entry.kind}"><time>${entry.time}</time><span>${entry.text}</span></li>`).join('')}</ol></section>`
 }
 
+function mobileTurnBarHtml(): string {
+  const activeSide: Player = phase === 'offer' && offerer ? opponent(offerer) : phase === 'over' && winner ? winner : player
+  const whoText = phase === 'offer'
+    ? `${name(activeSide)} · Удвоение`
+    : phase === 'over'
+      ? `${name(activeSide)} ${matchWinner ? 'выиграли матч' : 'победили'}`
+      : phase === 'opening'
+        ? 'Начало партии'
+        : `${name(player)} · ${phase === 'roll' ? 'Бросок' : firstMoves(sequences).length ? 'Ход' : 'Ход завершён'}`
+  const scoreMeta = `${score.light}${targetPoints ? `/${targetPoints}` : ''} : ${score.dark}${targetPoints ? `/${targetPoints}` : ''} · ${crawford === 'active' ? 'Кроуфорд' : `×${cubeValue}`}`
+  return `<div class="mobile-turn-bar" aria-label="Управление ходом"><div class="mobile-turn-head"><span class="mobile-turn-who"><span class="mobile-turn-dot ${activeSide}"></span><span>${whoText}</span></span><span class="mobile-turn-meta">${scoreMeta}</span></div>${optionsHtml()}<div class="actions">${actionHtml()}</div></div>`
+}
+
 function render(): void {
   const offOption = moveOptions().some(move => move.to === 'off')
   const offLastTo = lastTurnMoves.some(move => move.to === 'off')
@@ -271,9 +284,10 @@ function render(): void {
     <header class="site-header"><div class="brand"><img class="brand-mark" src="${BASE}die-logo.svg" alt="" /><div><strong>NARD</strong><small>КОРОТКИЕ НАРДЫ</small></div></div><div class="header-right"><span class="mode-pill"><span></span> ${mode === 'local' ? 'ИГРА ВДВОЁМ' : mode === 'bot' ? 'ИГРА С БОТОМ' : 'БОТ VS БОТ'}</span><button class="text-button" data-action="mute" aria-pressed="${muted}" title="${muted ? 'Включить звук' : 'Выключить звук'}">${muted ? 'Звук выкл' : 'Звук вкл'}</button><a class="text-button" href="${BASE}online.html">Онлайн ↗</a><button class="text-button" data-action="rules">Правила <span>↗</span></button></div></header>
     <main class="layout">
       <section class="game-area" aria-label="Игровое поле">
-        <div class="board-head"><div><span class="eyebrow">${targetPoints ? `МАТЧ ДО ${targetPoints} ОЧК. · ПАРТИЯ ${gameNumber}` : 'КЛАССИЧЕСКАЯ ПАРТИЯ'}</span><h1>Игра начинается здесь.</h1></div><div class="board-head-meta"><span>24 ПУНКТА</span><i></i><span>15 ФИШЕК</span></div></div>
+        <div class="board-head"><div><span class="eyebrow">${targetPoints ? `МАТЧ ДО ${targetPoints} ОЧК. · ПАРТИЯ ${gameNumber}` : 'КЛАССИЧЕСКАЯ ПАРТИЯ'}</span><h1 class="hero-title">Игра начинается здесь.</h1></div><div class="board-head-meta"><span>24 ПУНКТА</span><i></i><span>15 ФИШЕК</span></div></div>
         ${boardHtml}
-        <div class="board-footer"><button class="off-target ${offOption ? 'possible' : ''} ${offLastTo ? 'last-to' : ''}" data-destination="off"><span class="target-icon">◎</span><span>ВЫВЕСТИ ФИШКУ</span></button><div class="board-footer-meta"><button class="board-tool-button" data-action="flip" title="Перевернуть доску" aria-label="Перевернуть доску">⇅ Перевернуть</button><span>${flipped ? 'Тёмные движутся от 1 к 24' : 'Светлые движутся от 24 к 1'} <span class="footer-arrow">↘</span></span></div></div>
+        <div class="board-footer"><button class="off-target ${offOption ? 'possible' : ''} ${offLastTo ? 'last-to' : ''}" data-destination="off"><span class="target-icon">◎</span><span>ВЫВЕСТИ ФИШКУ</span></button><div class="board-footer-meta"><button class="board-tool-button" data-action="flip" title="Перевернуть доску" aria-label="Перевернуть доску">⇅ Перевернуть</button><span class="board-direction-hint">${flipped ? 'Тёмные движутся от 1 к 24' : 'Светлые движутся от 24 к 1'} <span class="footer-arrow">↘</span></span></div></div>
+        ${mobileTurnBarHtml()}
       </section>
       <aside class="sidebar"><div class="sidebar-top"><span class="eyebrow">${targetPoints ? `МАТЧ ДО ${targetPoints}` : 'КЛАССИЧЕСКАЯ ИГРА'}</span><button class="icon-button" data-action="new" title="Новая партия" aria-label="Новая партия">↻</button></div>
         <div class="sidebar-controls">
